@@ -11,7 +11,7 @@ from config import logger
 from database.session import get_session
 from database.models import Company, SourceRunLog
 from database.repositories import company_repo, job_repo
-from collectors import ats_detect, careers_generic, hn_hiring, remoteok
+from collectors import ats_detect, careers_generic, google_search, hn_hiring, remoteok
 from collectors.ats_detect import FETCHERS
 
 
@@ -94,22 +94,67 @@ def _detect_ats_for_unknown_companies(limit: int = 30) -> int:
     return detected
 
 
-def _scan_generic_careers_pages(limit: int = 20) -> int:
-    """Best-effort fallback for companies with a careers_url but no known
-    ATS. Always flags results needs_review — see collectors/careers_generic.py."""
+def _discover_careers_urls(limit: int = 40) -> int:
+    """The seed spreadsheet only ever had a company's homepage (`website`),
+    never a direct careers-page URL — so this finds one, once, for
+    companies that don't have `ats_type` in (greenhouse/lever/ashby/
+    smartrecruiters) and haven't been probed yet. One session per company,
+    same reasoning as _detect_ats_for_unknown_companies: this is
+    network-bound and must not hold one transaction open across the whole
+    batch. Companies where nothing plausible is found are marked
+    ats_type='none' with careers_url still null, so they're not re-probed
+    every run forever (a human can always add a careers_url by hand on
+    the Companies page to force a retry)."""
+    with get_session() as db:
+        target_ids = [
+            c.id for c in company_repo.list_all(db)
+            if c.ats_type in ("unknown", "none") and c.careers_url is None and c.website
+        ][:limit]
+
+    found = 0
+    for i, company_id in enumerate(target_ids, start=1):
+        if i % 25 == 0:
+            logger.info(f"Careers-URL discovery progress: {i}/{len(target_ids)}, {found} found so far")
+
+        with get_session() as db:
+            company = db.get(Company, company_id)
+            website = company.website
+
+        careers_url = careers_generic.discover_careers_url(website)
+
+        with get_session() as db:
+            company = db.get(Company, company_id)
+            if careers_url:
+                company.careers_url = careers_url
+                company.ats_type = "generic"
+                found += 1
+            else:
+                company.ats_type = "none"
+    return found
+
+
+def _scan_generic_careers_pages(limit: int = 60) -> int:
+    """Fetches postings for companies with a discovered careers_url.
+    Always flags results needs_review — the extraction is heuristic (see
+    collectors/careers_generic.py), so a human glances at it once rather
+    than trusting a guess. Unlike the ATS scan, this doesn't call
+    mark_stale_not_seen_since: a generic HTML scrape is far more likely to
+    miss a still-open posting (pagination, JS-rendered listings, a
+    slightly different page layout) than an ATS API is, so treating "not
+    found this time" as "closed" would be unreliable here."""
     new_postings = 0
     with get_session() as db:
         targets = [
-            c for c in company_repo.list_all(db)
-            if c.ats_type in ("none", "generic") and c.careers_url
+            (c.id, c.careers_url) for c in company_repo.list_all(db)
+            if c.ats_type == "generic" and c.careers_url
         ][:limit]
 
-    for company in targets:
-        jobs = careers_generic.fetch(company.careers_url)
+    for company_id, careers_url in targets:
+        jobs = careers_generic.fetch(careers_url)
         if not jobs:
             continue
         with get_session() as db:
-            db_company = db.get(Company, company.id)
+            db_company = db.get(Company, company_id)
             db_company.needs_review = True
             for job in jobs:
                 _, is_new = job_repo.upsert_posting(
@@ -123,6 +168,44 @@ def _scan_generic_careers_pages(limit: int = 20) -> int:
                 if is_new:
                     new_postings += 1
     return new_postings
+
+
+def _discover_via_google() -> int:
+    """Google Custom Search JSON API (not scraping google.com — see
+    collectors/google_search.py for why that distinction matters). Only
+    runs if GOOGLE_CSE_KEY/GOOGLE_CSE_CX are set; a fresh checkout without
+    those free credentials just skips this and relies on RemoteOK/HN.
+    Candidates come with a real careers_url already, so this fetches
+    postings immediately rather than waiting for the next
+    _discover_careers_urls pass."""
+    candidates = google_search.discover_companies()
+    discovered = 0
+    for candidate in candidates:
+        with get_session() as db:
+            company = company_repo.upsert(
+                db,
+                name=candidate["company_name"],
+                website=candidate["website"],
+                careers_url=candidate["careers_url"],
+                technology_tag=candidate["technology_tag"],
+                ats_type="generic",
+                source="discovered",
+                needs_review=True,
+            )
+            company_id = company.id
+
+        jobs = careers_generic.fetch(candidate["careers_url"])
+        if not jobs:
+            continue
+        with get_session() as db:
+            for job in jobs:
+                _, is_new = job_repo.upsert_posting(
+                    db, company_id=company_id, external_id=job["external_id"], source="generic",
+                    title=job.get("title", ""), url=job.get("url", ""),
+                )
+                if is_new:
+                    discovered += 1
+    return discovered
 
 
 def _discover_new_companies() -> int:
@@ -155,28 +238,33 @@ def _discover_new_companies() -> int:
     return discovered
 
 
-def run(detect_limit: int = 40) -> dict:
+def run(detect_limit: int = 40, careers_discovery_limit: int = 40) -> dict:
     logger.info("Starting daily job scan")
     # Detect first: a company detected this run should still get scanned
     # this run, not wait until tomorrow.
     detected = _detect_ats_for_unknown_companies(limit=detect_limit)
     checked, new_from_ats, errors = _scan_known_ats_companies()
+    careers_urls_found = _discover_careers_urls(limit=careers_discovery_limit)
     new_from_generic = _scan_generic_careers_pages()
     new_from_discovery = _discover_new_companies()
+    new_from_google = _discover_via_google()
 
-    total_new = new_from_ats + new_from_generic + new_from_discovery
+    total_new = new_from_ats + new_from_generic + new_from_discovery + new_from_google
     with get_session() as db:
         db.add(SourceRunLog(source="daily_job_scan", companies_checked=checked, new_postings_found=total_new, errors=errors or None))
 
     logger.info(
         f"Daily job scan complete: {checked} companies checked, {detected} newly ATS-detected, "
-        f"{total_new} new postings ({new_from_ats} ATS, {new_from_generic} generic, {new_from_discovery} discovered), "
+        f"{careers_urls_found} careers pages newly found, "
+        f"{total_new} new postings ({new_from_ats} ATS, {new_from_generic} generic, "
+        f"{new_from_discovery} discovered, {new_from_google} via Google), "
         f"{len(errors)} source errors"
     )
     return {
         "companies_checked": checked,
         "new_postings": total_new,
         "newly_ats_detected": detected,
+        "careers_urls_found": careers_urls_found,
         "errors": errors,
     }
 

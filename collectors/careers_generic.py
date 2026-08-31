@@ -5,19 +5,57 @@ so a human glances at it once rather than trusting a guess."""
 
 import hashlib
 import re
+import warnings
 from urllib.parse import urljoin
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 
 from collectors.base import RawJob
 from collectors.http_utils import get_html
+
+# A handful of "careers" URL guesses land on a sitemap.xml or RSS feed
+# instead of an actual page — harmless (BeautifulSoup still parses it,
+# just finds no job-like links), but noisy without this filter.
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 SOURCE = "generic"
 
 JOB_LINK_HINT = re.compile(r"job|career|position|opening|role", re.IGNORECASE)
 NAV_TEXT = re.compile(r"^(home|about|contact|careers?|jobs?|apply|open positions?)$", re.IGNORECASE)
+CAREERS_LINK_TEXT = re.compile(r"career|jobs|join us|we're hiring|open positions|work with us", re.IGNORECASE)
 MIN_TITLE_WORDS = 2
 MAX_TITLE_WORDS = 12
+COMMON_CAREERS_PATHS = ("/careers", "/jobs", "/careers/", "/join-us", "/company/careers", "/about/careers", "/about-us/careers")
+
+
+def _normalize(website: str) -> str:
+    return website if website.startswith(("http://", "https://")) else f"https://{website}"
+
+
+def discover_careers_url(website: str) -> str | None:
+    """Given just a company's homepage domain (all we have from the seed
+    spreadsheet — it never included direct careers-page URLs), find a
+    plausible careers page: try common path guesses first, then fall back
+    to following a 'Careers'/'Jobs' nav link found on the homepage itself.
+    Returns None rather than guessing wrong if nothing looks right."""
+    base = _normalize(website)
+
+    for path in COMMON_CAREERS_PATHS:
+        html = get_html(base.rstrip("/") + path, timeout=8)
+        if html and JOB_LINK_HINT.search(html):
+            return base.rstrip("/") + path
+
+    home_html = get_html(base, timeout=8)
+    if not home_html:
+        return None
+
+    soup = BeautifulSoup(home_html, "lxml")
+    for anchor in soup.find_all("a", href=True):
+        text = anchor.get_text(strip=True)
+        if CAREERS_LINK_TEXT.search(text) or CAREERS_LINK_TEXT.search(anchor["href"]):
+            return urljoin(base, anchor["href"])
+
+    return None
 
 
 def fetch(careers_url: str) -> list[RawJob]:
