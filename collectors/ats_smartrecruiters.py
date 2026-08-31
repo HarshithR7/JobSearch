@@ -31,11 +31,15 @@ def fetch(slug: str) -> list[RawJob] | None:
     for item in data["content"]:
         location_obj = item.get("location") or {}
         location = ", ".join(filter(None, [location_obj.get("city"), location_obj.get("country")])) or None
+        # `ref` is a link to the internal API detail endpoint, not a
+        # human-facing page — the public job page follows this pattern
+        # instead (confirmed against a live posting).
+        company_identifier = (item.get("company") or {}).get("identifier", slug)
         jobs.append(
             RawJob(
                 external_id=item.get("id", ""),
                 title=item.get("name", ""),
-                url=(item.get("ref") or {}).get("jobAd", item.get("jobAdUrl", "")),
+                url=f"https://jobs.smartrecruiters.com/{company_identifier}/{item.get('id', '')}",
                 location=location,
                 remote_flag=location_obj.get("remote") or looks_remote(location),
                 department=(item.get("department") or {}).get("label"),

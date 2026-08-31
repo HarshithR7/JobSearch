@@ -2,7 +2,18 @@
 Search API (no auth, documented at hn.algolia.com/api). Each top-level
 comment is one job post in free text — extraction is heuristic (first
 line is conventionally 'Company Name | Role | Location | Remote') so
-these land as needs_review candidates, not confirmed postings."""
+these land as needs_review candidates, not confirmed postings.
+
+Known limitation: the thread is a static, point-in-time snapshot — a
+comment posted months ago is returned by this API forever, regardless of
+whether that role is still open. Because job_repo.upsert_posting resets
+status='live' on any re-appearance, re-running this collector daily will
+keep an old HN-sourced posting marked 'live' indefinitely rather than ever
+letting it go stale. Acceptable for Phase 1 (worst case is a slightly
+inflated live count for HN-discovered companies specifically, not
+incorrect data for ATS-tracked ones), but a real fix would need staleness
+detection to distinguish "reconfirmed by an authoritative source" from
+"a source that always echoes historical data."""
 
 import re
 

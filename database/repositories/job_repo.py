@@ -52,6 +52,14 @@ def upsert_posting(db: Session, company_id: int, external_id: str, source: str, 
     if last_snapshot is None or last_snapshot.description_hash != description_hash:
         db.add(JobSnapshot(job_posting_id=existing.id, description_hash=description_hash, description_text=description))
 
+    # The session is autoflush=False (see database/engine.py), so without
+    # this explicit flush, mark_stale_not_seen_since()'s SELECT — run right
+    # after a whole company's postings are upserted — would not see this
+    # pending last_seen_at update and would wrongly treat this
+    # just-reconfirmed-live posting as stale on every re-scan after the
+    # first. Flushing here keeps "after upsert_posting returns, the DB
+    # reflects the update" true regardless of what the caller does next.
+    db.flush()
     return existing, False
 
 
