@@ -15,16 +15,18 @@ See `plan.md`-equivalent context in the repo history / conversation this was bui
 
 The `.venv` (Windows) and `.venv-wsl` (WSL/Ubuntu) virtualenvs are already set up in this repo with everything installed, and `.env` already has `DATABASE_URL` pointed at the live Neon DB. Pick whichever shell you're in:
 
+**Important: use `python -m streamlit`, not the `streamlit`/`streamlit.exe` binary directly.** The app imports things like `from database.session import ...` and `from app_common import ...` assuming the project root is on `sys.path` — `python -m streamlit` guarantees that (it adds the current directory); invoking the `streamlit` executable/shim directly does not, and fails with `ModuleNotFoundError: No module named 'database'`.
+
 **Windows PowerShell:**
 ```powershell
 cd c:\Users\harsh\JobSearch
-.\.venv\Scripts\streamlit.exe run app\app.py
+.\.venv\Scripts\python.exe -m streamlit run app\app.py
 ```
 
 **WSL / Ubuntu:**
 ```bash
 cd /mnt/c/Users/harsh/JobSearch
-./.venv-wsl/bin/streamlit run app/app.py
+./.venv-wsl/bin/python -m streamlit run app/app.py
 ```
 
 Either one prints a URL — open **http://localhost:8501** in your browser. First thing you'll see is the sidebar profile switcher (already has "Harshith") and links to Job Feed / Companies / Applications / Resume Studio / Prep Center / Profiles.
@@ -80,8 +82,8 @@ python main.py tailor-resume --profile Harshith --job-id 123
 # Generate interview-prep content for a role archetype
 python main.py generate-prep --role "RISC-V Verification Engineer" --tech-tag "RISC-V"
 
-# UI
-streamlit run app/app.py
+# UI — see "Run the dashboard" above for why this must be `python -m streamlit`, not the bare `streamlit` command
+python -m streamlit run app/app.py
 ```
 
 ## Notes
