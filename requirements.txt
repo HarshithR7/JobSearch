@@ -1,0 +1,16 @@
+streamlit>=1.61.1
+SQLAlchemy>=2.0.0
+psycopg2-binary>=2.9.0
+alembic
+pydantic>=2.8.2
+pydantic-settings>=2.4.0
+python-dotenv>=1.0.1
+requests
+beautifulsoup4
+lxml
+pandas
+python-docx
+openpyxl
+anthropic
+schedule
+pytest

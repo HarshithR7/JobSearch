@@ -1,0 +1,16 @@
+# Deployment dependencies for Streamlit Community Cloud.
+# Same as requirements.txt, minus dev/test-only packages (pytest) and
+# openpyxl (only needed once, locally, by scripts/seed_companies.py).
+streamlit>=1.61.1
+SQLAlchemy>=2.0.0
+psycopg2-binary>=2.9.0
+alembic
+pydantic>=2.8.2
+pydantic-settings>=2.4.0
+python-dotenv>=1.0.1
+requests
+beautifulsoup4
+lxml
+pandas
+python-docx
+anthropic

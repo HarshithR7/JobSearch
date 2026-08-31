@@ -1,0 +1,13 @@
+.venv/
+.venv-wsl/
+__pycache__/
+*.pyc
+.env
+*.log
+data/*.csv
+data/resumes/
+!data/.gitkeep
+.streamlit/secrets.toml
+.DS_Store
+*.egg-info/
+.pytest_cache/

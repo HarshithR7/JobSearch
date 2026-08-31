@@ -1,0 +1,36 @@
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    # Database
+    DATABASE_URL: str | None = None
+    DB_HOST: str = "localhost"
+    DB_PORT: int = 5432
+    DB_NAME: str = "job_search"
+    DB_USER: str = "postgres"
+    DB_PASSWORD: str = ""
+
+    # AI
+    ANTHROPIC_API_KEY: str | None = None
+    ANTHROPIC_MODEL: str = "claude-sonnet-5"
+
+    # Optional collectors
+    GOOGLE_CSE_KEY: str | None = None
+    GOOGLE_CSE_CX: str | None = None
+
+    IMAP_HOST: str = "imap.gmail.com"
+    IMAP_USER: str | None = None
+    IMAP_APP_PASSWORD: str | None = None
+    IMAP_LABEL: str = "LinkedIn-Alerts"
+
+    # Application
+    ENV: str = "development"
+    DEBUG: bool = True
+    LOG_LEVEL: str = "INFO"
+
+    GITHUB_USERNAME: str = "HarshithR7"
+
+
+settings = Settings()
