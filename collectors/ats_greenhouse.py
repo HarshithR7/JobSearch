@@ -9,7 +9,7 @@ SOURCE = "greenhouse"
 
 
 def probe(slug: str) -> bool:
-    data = get_json(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs")
+    data = get_json(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs", timeout=6)
     return isinstance(data, dict) and "jobs" in data
 
 

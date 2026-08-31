@@ -61,14 +61,30 @@ def _scan_known_ats_companies() -> tuple[int, int, dict]:
 
 
 def _detect_ats_for_unknown_companies(limit: int = 30) -> int:
-    """Tries to identify the ATS for companies still marked 'unknown',
-    a handful per run so a full backlog doesn't turn one run into hundreds
-    of probe requests."""
-    detected = 0
+    """Tries to identify the ATS for companies still marked 'unknown'.
+
+    One session per company, committed immediately after each — this loop
+    is network-bound (each company can take several seconds across probe
+    attempts) and holding a single DB session/transaction open across the
+    whole batch risks the DB closing an idle connection before anything
+    gets committed, silently losing all progress. Committing per-company
+    also means a mid-run crash keeps everything done so far.
+    """
     with get_session() as db:
-        unknown = [c for c in company_repo.list_all(db) if c.ats_type == "unknown"][:limit]
-        for company in unknown:
-            ats_type, slug = ats_detect.detect(company.name, company.careers_url)
+        unknown_ids = [c.id for c in company_repo.list_all(db) if c.ats_type == "unknown"][:limit]
+
+    detected = 0
+    for i, company_id in enumerate(unknown_ids, start=1):
+        if i % 25 == 0:
+            logger.info(f"ATS detection progress: {i}/{len(unknown_ids)} companies checked, {detected} detected so far")
+        with get_session() as db:
+            company = db.get(Company, company_id)
+            name, careers_url = company.name, company.careers_url
+
+        ats_type, slug = ats_detect.detect(name, careers_url)
+
+        with get_session() as db:
+            company = db.get(Company, company_id)
             if ats_type:
                 company.ats_type = ats_type
                 company.ats_slug = slug
@@ -139,10 +155,12 @@ def _discover_new_companies() -> int:
     return discovered
 
 
-def run() -> dict:
+def run(detect_limit: int = 40) -> dict:
     logger.info("Starting daily job scan")
+    # Detect first: a company detected this run should still get scanned
+    # this run, not wait until tomorrow.
+    detected = _detect_ats_for_unknown_companies(limit=detect_limit)
     checked, new_from_ats, errors = _scan_known_ats_companies()
-    detected = _detect_ats_for_unknown_companies()
     new_from_generic = _scan_generic_careers_pages()
     new_from_discovery = _discover_new_companies()
 

@@ -4,9 +4,9 @@ DEFAULT_TIMEOUT = 15
 USER_AGENT = "JobSearchPortal/1.0 (personal job-search tool; contact via GitHub HarshithR7)"
 
 
-def get_json(url: str, **kwargs) -> dict | list | None:
+def get_json(url: str, timeout: float = DEFAULT_TIMEOUT, **kwargs) -> dict | list | None:
     try:
-        resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=DEFAULT_TIMEOUT, **kwargs)
+        resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=timeout, **kwargs)
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
@@ -15,9 +15,9 @@ def get_json(url: str, **kwargs) -> dict | list | None:
         return None
 
 
-def get_html(url: str, **kwargs) -> str | None:
+def get_html(url: str, timeout: float = DEFAULT_TIMEOUT, **kwargs) -> str | None:
     try:
-        resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=DEFAULT_TIMEOUT, **kwargs)
+        resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=timeout, **kwargs)
         if resp.status_code == 404:
             return None
         resp.raise_for_status()

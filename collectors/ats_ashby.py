@@ -9,7 +9,7 @@ SOURCE = "ashby"
 
 
 def probe(slug: str) -> bool:
-    data = get_json(f"https://api.ashbyhq.com/posting-api/job-board/{slug}")
+    data = get_json(f"https://api.ashbyhq.com/posting-api/job-board/{slug}", timeout=6)
     return isinstance(data, dict) and "jobs" in data
 
 

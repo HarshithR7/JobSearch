@@ -9,7 +9,7 @@ SOURCE = "smartrecruiters"
 
 
 def probe(slug: str) -> bool:
-    data = get_json(f"https://api.smartrecruiters.com/v1/companies/{slug}/postings")
+    data = get_json(f"https://api.smartrecruiters.com/v1/companies/{slug}/postings", timeout=6)
     return isinstance(data, dict) and "content" in data
 
 

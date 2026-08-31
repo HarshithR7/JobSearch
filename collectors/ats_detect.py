@@ -3,9 +3,16 @@ it's on by probing standard slug patterns. Cheap and safe: each probe is a
 single GET against a public API, no scraping involved."""
 
 import re
+import time
 
 from collectors import ats_ashby, ats_greenhouse, ats_lever, ats_smartrecruiters
 from collectors.http_utils import slugify
+
+# Be a polite client: these are free, unauthenticated public APIs meant for
+# embedding job boards, not built for a script probing hundreds of slug
+# guesses back to back. A small delay between probes keeps a one-time
+# backfill over the whole company list from looking like a burst attack.
+PROBE_DELAY_SECONDS = 0.3
 
 PROBERS = {
     "greenhouse": ats_greenhouse.probe,
@@ -53,4 +60,5 @@ def detect(name: str, careers_url: str | None = None) -> tuple[str | None, str |
         for ats_type, probe in PROBERS.items():
             if probe(slug):
                 return ats_type, slug
+            time.sleep(PROBE_DELAY_SECONDS)
     return None, None

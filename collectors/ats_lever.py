@@ -11,7 +11,7 @@ SOURCE = "lever"
 
 
 def probe(slug: str) -> bool:
-    data = get_json(f"https://api.lever.co/v0/postings/{slug}?mode=json")
+    data = get_json(f"https://api.lever.co/v0/postings/{slug}?mode=json", timeout=6)
     return isinstance(data, list)
 
 

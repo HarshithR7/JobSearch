@@ -22,8 +22,11 @@ class Company(Base):
     ats_slug: Mapped[str | None] = mapped_column(String(255), nullable=True)
     needs_review: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    technology_tag: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    country: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Widened beyond a typical short tag/country: the source spreadsheet has
+    # inconsistent column alignment on some sheets, occasionally landing a
+    # full free-text description in these positions.
+    technology_tag: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(500), nullable=True)
     founded_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
