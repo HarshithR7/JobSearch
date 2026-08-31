@@ -19,28 +19,43 @@ def scan_jobs():
 
 
 def match_jobs(profile_name: str | None):
+    """One short-lived DB session per posting, with the slow Claude call
+    happening outside any session — scoring hundreds of postings can take
+    many minutes, and holding a single transaction open that whole time
+    risks the DB dropping an idle connection before anything gets
+    committed (see the ATS-detection bug this pattern caused)."""
     with get_session() as db:
         profiles = [profile_repo.get_by_name(db, profile_name)] if profile_name else profile_repo.list_all(db)
         profiles = [p for p in profiles if p is not None]
-        if not profiles:
-            logger.warning("No matching profile(s) found")
-            return
+    if not profiles:
+        logger.warning("No matching profile(s) found")
+        return
 
-        for profile in profiles:
-            if not profile.resume_structured:
-                logger.warning(f"{profile.name}: no parsed resume yet — skipping (use the Profiles page first)")
-                continue
+    for profile in profiles:
+        if not profile.resume_structured:
+            logger.warning(f"{profile.name}: no parsed resume yet — skipping (use the Profiles page first)")
+            continue
 
+        with get_session() as db:
             postings = job_repo.list_live(db)
-            logger.info(f"{profile.name}: scoring {len(postings)} live postings")
-            for posting in postings:
+        logger.info(f"{profile.name}: scoring {len(postings)} live postings")
+
+        for i, posting in enumerate(postings, start=1):
+            if i % 25 == 0:
+                logger.info(f"{profile.name}: scored {i}/{len(postings)} postings so far")
+
+            with get_session() as db:
                 company = db.get(Company, posting.company_id)
-                result = job_matcher.score_job(
-                    profile.resume_structured,
-                    posting.title,
-                    posting.raw_description or posting.title,
-                    company_context=f"{company.name} — {company.description or ''}" if company else "",
-                )
+                company_context = f"{company.name} — {company.description or ''}" if company else ""
+
+            result = job_matcher.score_job(
+                profile.resume_structured,
+                posting.title,
+                posting.raw_description or posting.title,
+                company_context=company_context,
+            )
+
+            with get_session() as db:
                 match_repo.upsert(
                     db,
                     job_posting_id=posting.id,

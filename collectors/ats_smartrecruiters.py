@@ -9,8 +9,16 @@ SOURCE = "smartrecruiters"
 
 
 def probe(slug: str) -> bool:
+    """SmartRecruiters' postings endpoint returns HTTP 200 with an empty
+    `content: []` for ANY slug, real or not — it never 404s. So "the
+    endpoint responded" is not a valid existence check; requiring at least
+    one actual posting is the only reliable signal available here. This
+    means a real SmartRecruiters company with zero current openings won't
+    be detected — an acceptable false negative, since there'd be nothing
+    to show anyway, versus the alternative of tagging nearly every
+    unmatched company as a fabricated SmartRecruiters slug."""
     data = get_json(f"https://api.smartrecruiters.com/v1/companies/{slug}/postings", timeout=6)
-    return isinstance(data, dict) and "content" in data
+    return isinstance(data, dict) and data.get("totalFound", 0) > 0
 
 
 def fetch(slug: str) -> list[RawJob] | None:
