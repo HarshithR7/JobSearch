@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import streamlit as st
 
-from app.common import select_profile
+from app_common import select_profile
 from database.session import get_session
 from database.models import JobPosting, Company
 from database.repositories import match_repo, application_repo

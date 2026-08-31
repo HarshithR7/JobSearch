@@ -1,7 +1,11 @@
-"""Small shared helpers for Streamlit pages. Each page is its own script
-execution in Streamlit's multipage model, so the profile selector is
-repeated on every page (using the same widget key keeps the choice
-in sync across page switches within one session)."""
+"""Shared helpers for Streamlit pages, kept at the project root (not
+inside app/) deliberately: Streamlit's multipage execution model runs
+app/pages/*.py as standalone scripts, and importing this as `app.common`
+collides with the main entrypoint being app/app.py — Python ends up with
+`app` bound to that non-package script module, so `from app.common import
+...` fails with "'app' is not a package". A bare top-level import from
+the project root (already on sys.path — see any page's `database.*`
+imports) sidesteps the collision entirely."""
 
 import streamlit as st
 
