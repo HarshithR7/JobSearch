@@ -11,6 +11,39 @@ See `plan.md`-equivalent context in the repo history / conversation this was bui
 - Streamlit UI
 - Anthropic Claude for resume tailoring, job matching, and interview-prep generation
 
+## Run the dashboard
+
+The `.venv` (Windows) and `.venv-wsl` (WSL/Ubuntu) virtualenvs are already set up in this repo with everything installed, and `.env` already has `DATABASE_URL` pointed at the live Neon DB. Pick whichever shell you're in:
+
+**Windows PowerShell:**
+```powershell
+cd c:\Users\harsh\JobSearch
+.\.venv\Scripts\streamlit.exe run app\app.py
+```
+
+**WSL / Ubuntu:**
+```bash
+cd /mnt/c/Users/harsh/JobSearch
+./.venv-wsl/bin/streamlit run app/app.py
+```
+
+Either one prints a URL — open **http://localhost:8501** in your browser. First thing you'll see is the sidebar profile switcher (already has "Harshith") and links to Job Feed / Companies / Applications / Resume Studio / Prep Center / Profiles.
+
+**To stop it:** `Ctrl+C` in the terminal it's running in. If you closed that terminal instead and port 8501 is still stuck:
+```powershell
+# PowerShell — find and stop whatever's holding the port
+Get-NetTCPConnection -LocalPort 8501 -State Listen | Select-Object OwningProcess
+Stop-Process -Id <OwningProcess> -Force
+```
+```bash
+# WSL/Linux
+lsof -ti:8501 | xargs -r kill
+```
+
+**Restart after a code change:** Streamlit auto-reloads `app/app.py` and `app/pages/*.py` on save, but not shared modules like `app_common.py` or anything under `database/`/`analysis/`/`collectors/` in an already-running process — stop it (`Ctrl+C`) and re-run the command above if something looks stale or you hit an `ImportError`.
+
+**Nothing showing up on Job Feed?** That page needs a *parsed* resume — go to **Profiles**, and once `ANTHROPIC_API_KEY` has billing credits, paste/upload a resume there (it auto-parses on save). Companies/Applications/Profiles all work today without any AI key.
+
 ## Folder guide
 - `app/` — Streamlit shell (`app.py`) + pages (Job Feed, Companies, Applications, Resume Studio, Prep Center, Profiles)
 - `config/` — pydantic-settings config + logging
