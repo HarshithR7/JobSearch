@@ -1,11 +1,15 @@
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 
+import anthropic
 import streamlit as st
 
 from app_common import select_profile
 from database.session import get_session
 from database.models import JobPosting, Company
 from database.repositories import match_repo, application_repo
+from analysis import gap_advisor
+from analysis.ai_client import AIUnavailableError
 
 st.set_page_config(page_title="Job Feed", page_icon="🔥", layout="wide")
 st.title("🔥 Job Feed")
@@ -104,3 +108,34 @@ for r in filtered:
                 application = application_repo.get_or_create(db, profile.id, posting.id)
                 application_repo.set_status(db, application, "interested")
             st.success("Marked interested — see the Applications page.")
+
+st.divider()
+st.subheader("🧩 Skills Gap")
+st.caption("Aggregated across all your scored jobs (not just the filtered view above) — "
+           "the skills that keep costing you match points.")
+
+all_missing = [s for r in rows for s in (r["match"].missing_skills or [])]
+if not all_missing:
+    st.caption("No recurring skill gaps found across your scored jobs.")
+else:
+    gap_counts = Counter(s.lower() for s in all_missing)
+    top_gaps = gap_counts.most_common(5)
+    gap_cols = st.columns(len(top_gaps))
+    for col, (skill, count) in zip(gap_cols, top_gaps):
+        col.metric(skill, f"{count} jobs")
+
+    if not profile.github_username:
+        st.caption("Add a GitHub username on the Profiles page to get concrete project "
+                   "recommendations for closing these gaps.")
+    elif st.button("Suggest project additions to close these gaps"):
+        try:
+            with st.spinner("Checking your GitHub repos and generating recommendations with Claude..."):
+                result = gap_advisor.recommend_projects(profile.github_username, all_missing)
+            for rec in result.get("recommendations", []):
+                with st.container(border=True):
+                    st.markdown(f"**{rec.get('repo', '?')}** — {rec.get('addition', '')}")
+                    st.caption(rec.get("why", ""))
+                    if rec.get("skills_closed"):
+                        st.markdown("Closes: " + ", ".join(rec["skills_closed"]))
+        except (AIUnavailableError, anthropic.APIError, ValueError) as exc:
+            st.warning(f"Couldn't generate recommendations: {exc}")
