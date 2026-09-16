@@ -1,3 +1,4 @@
+import anthropic
 import streamlit as st
 
 from app_common import select_profile
@@ -50,7 +51,7 @@ if st.button("Generate tailored resume"):
             st.session_state["last_tailored_text"] = text
             st.session_state["last_tailored_docx"] = docx_bytes
             st.session_state["last_tailored_version_id"] = version.id
-        except AIUnavailableError as exc:
+        except (AIUnavailableError, anthropic.APIError, ValueError) as exc:
             st.error(str(exc))
 
 if st.session_state.get("last_tailored_text"):

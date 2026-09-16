@@ -1,3 +1,4 @@
+import anthropic
 import streamlit as st
 
 from config import settings
@@ -68,7 +69,12 @@ if submitted:
                     with st.spinner("Parsing resume with Claude..."):
                         profile.resume_structured = resume_parser.parse_resume_text(raw_text)
                     st.success("Resume parsed and saved.")
-                except AIUnavailableError as exc:
+                except (AIUnavailableError, anthropic.APIError, ValueError) as exc:
+                    # Covers missing key (AIUnavailableError), any API-side failure
+                    # (no credits, rate limit, outage — anthropic.APIError), and
+                    # malformed model output (json.JSONDecodeError is a ValueError).
+                    # Without this the exception would propagate out of get_session()
+                    # and roll back the whole profile save, not just the parse step.
                     st.warning(f"Resume text saved, but not parsed yet: {exc}")
 
         st.success(f"Profile '{name}' saved.")

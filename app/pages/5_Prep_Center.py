@@ -1,3 +1,4 @@
+import anthropic
 import streamlit as st
 
 from database.session import get_session
@@ -33,7 +34,7 @@ if role_name and st.button("Generate / refresh prep content"):
                 model_used="claude",
             )
             st.success("Generated.")
-        except AIUnavailableError as exc:
+        except (AIUnavailableError, anthropic.APIError, ValueError) as exc:
             st.error(str(exc))
 
 if role_name:
