@@ -164,7 +164,21 @@ def _resume_text(resume_structured: dict) -> str:
     return " ".join(parts)
 
 
-MIN_REQUIRED_KEYWORDS = 3  # below this, len(matched)/len(job_required) is noise, not a score
+MIN_REQUIRED_KEYWORDS = 5  # below this, len(matched)/len(job_required) is noise, not a score
+
+
+def _confidence_cap(n_required: int) -> int:
+    """A perfect ratio (matched == required) isn't fully trustworthy on a
+    thin keyword sample — 5/5 matched still only means 5 recognized terms
+    out of everything a real posting actually asks for. Caps the reachable
+    score by how much evidence backs it, so a 100 requires real breadth of
+    matched vocabulary, not a lucky small sample. User: "fix the free
+    score run, more rigid for scoring.\""""
+    if n_required < 7:
+        return 80
+    if n_required < 10:
+        return 90
+    return 100
 
 _EXPERIENCE_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
 _PRESENT_RE = re.compile(r"\bpresent\b|\bcurrent\b|\bnow\b", re.IGNORECASE)
@@ -229,11 +243,15 @@ def score_job_free(resume_structured: dict, job_title: str, job_description: str
     missing = [kw for kw in job_required if kw not in matched]
 
     if len(job_required) >= MIN_REQUIRED_KEYWORDS:
-        overall = round(100 * len(matched) / len(job_required))
+        ratio_score = round(100 * len(matched) / len(job_required))
+        cap = _confidence_cap(len(job_required))
+        overall = min(ratio_score, cap)
         rationale = (
             f"Free keyword match: {len(matched)}/{len(job_required)} recognized skill "
             f"keywords in this posting also appear in your resume."
         )
+        if ratio_score > cap:
+            rationale += f" Capped at {cap}% — only {len(job_required)} recognized keywords is thin evidence for a higher score."
     elif job_required:
         overall = 50
         rationale = (

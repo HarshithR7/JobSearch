@@ -6,7 +6,7 @@ from config import logger
 from database.init_db import create_tables
 from database.session import get_session
 from database.repositories import profile_repo, job_repo, match_repo, prep_repo
-from database.models import Company, JobPosting
+from database.models import Company, JobMatch, JobPosting
 from analysis import job_matcher, resume_tailor, prep_generator
 
 
@@ -61,6 +61,20 @@ def match_jobs(profile_name: str | None, engine: str = "free", limit: int | None
                 ]
             elif engine == "free":
                 postings = job_repo.list_live(db, limit=100_000)  # no cap — no per-job cost
+                # Never let a free rerun silently downgrade a posting that
+                # already has a paid Claude score for this profile — same
+                # (job_posting_id, profile_id) row gets overwritten by
+                # match_repo.upsert() regardless of which engine wrote it
+                # last, so without this a routine free rescore would erase
+                # real money already spent on --engine ai.
+                claude_scored_ids = {
+                    row[0] for row in db.query(JobMatch.job_posting_id).filter(
+                        JobMatch.profile_id == profile.id, JobMatch.model_used == "claude"
+                    )
+                }
+                if claude_scored_ids:
+                    postings = [p for p in postings if p.id not in claude_scored_ids]
+                    logger.info(f"{profile.name}: skipping {len(claude_scored_ids)} postings with an existing Claude score")
             else:
                 postings = job_repo.list_live(db, limit=limit or 500)
         logger.info(f"{profile.name}: scoring {len(postings)} live postings ({engine} engine)")
