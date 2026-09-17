@@ -32,7 +32,7 @@ def generate_tailored_content(resume_structured: dict, job_title: str, job_descr
         f"JOB TITLE: {job_title}\n"
         f"JOB DESCRIPTION:\n{job_description[:6000]}"
     )
-    return complete_json(SYSTEM_PROMPT, user_prompt, max_tokens=3000)
+    return complete_json(SYSTEM_PROMPT, user_prompt, max_tokens=4500)
 
 
 def render_docx(tailored: dict, candidate_name: str, contact_line: str) -> bytes:

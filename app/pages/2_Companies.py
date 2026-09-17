@@ -1,11 +1,13 @@
 import pandas as pd
 import streamlit as st
 
+from app_common import inject_apple_theme
 from database.session import get_session
 from database.repositories import company_repo
 from database.models import Company
 
 st.set_page_config(page_title="Companies", page_icon="🏢", layout="wide")
+inject_apple_theme()
 st.title("🏢 Companies")
 st.caption("Replaces the startups2.xlsx workflow — seeded from your spreadsheet, "
            "grown by discovery collectors (RemoteOK/HN), and editable below.")

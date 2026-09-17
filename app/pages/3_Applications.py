@@ -1,12 +1,13 @@
 import streamlit as st
 
-from app_common import select_profile
+from app_common import inject_apple_theme, select_profile
 from database.session import get_session
 from database.models import JobPosting, Company, Application
 from database.models.application import APPLICATION_STATUSES
 from database.repositories import application_repo
 
 st.set_page_config(page_title="Applications", page_icon="📋", layout="wide")
+inject_apple_theme()
 st.title("📋 Applications")
 
 profile = select_profile()

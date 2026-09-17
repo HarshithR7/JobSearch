@@ -35,4 +35,8 @@ def parse_resume_text(raw_text: str) -> dict:
     """Calls Claude once to reshape plain resume text into the structured
     schema above. Raises analysis.ai_client.AIUnavailableError if no API
     key is configured."""
-    return complete_json(SYSTEM_PROMPT, raw_text, max_tokens=3000)
+    # 3000, then 4500, both truncated mid-string on this resume (a long,
+    # project-heavy one) — wasted two real API calls to JSONDecodeError
+    # before this. Going generous rather than incrementing by 1500 a third
+    # time.
+    return complete_json(SYSTEM_PROMPT, raw_text, max_tokens=8000)

@@ -49,4 +49,4 @@ def recommend_projects(github_username: str, missing_skills: list[str]) -> dict:
         f"EXISTING PUBLIC REPOS:\n{repos}\n\n"
         f"MISSING SKILLS ACROSS TARGET JOBS (skill: number of jobs requiring it):\n{ranked_gaps}"
     )
-    return complete_json(SYSTEM_PROMPT, user_prompt, max_tokens=2000)
+    return complete_json(SYSTEM_PROMPT, user_prompt, max_tokens=2500)

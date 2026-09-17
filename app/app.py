@@ -1,9 +1,11 @@
 import streamlit as st
 
+from app_common import inject_apple_theme
 from database.session import get_session
 from database.repositories import profile_repo
 
 st.set_page_config(page_title="Career Command Center", page_icon="🎯", layout="wide")
+inject_apple_theme()
 
 st.sidebar.title("🎯 Career Command Center")
 

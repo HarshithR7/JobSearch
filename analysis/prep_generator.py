@@ -22,4 +22,4 @@ questions for this exact role. Be specific to the role/technology named, not gen
 
 def generate_prep_content(role_name: str, tech_tag: str | None = None) -> dict:
     user_prompt = f"Role: {role_name}" + (f"\nPrimary technology: {tech_tag}" if tech_tag else "")
-    return complete_json(SYSTEM_PROMPT, user_prompt, max_tokens=2500)
+    return complete_json(SYSTEM_PROMPT, user_prompt, max_tokens=3500)

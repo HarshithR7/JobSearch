@@ -1,7 +1,7 @@
 import anthropic
 import streamlit as st
 
-from app_common import select_profile
+from app_common import inject_apple_theme, select_profile
 from database.session import get_session
 from database.models import JobPosting, Company, ResumeVersion
 from database.repositories import job_repo
@@ -9,6 +9,7 @@ from analysis import resume_tailor
 from analysis.ai_client import AIUnavailableError
 
 st.set_page_config(page_title="Resume Studio", page_icon="📄", layout="wide")
+inject_apple_theme()
 st.title("📄 Resume Studio")
 
 profile = select_profile()

@@ -1,6 +1,7 @@
 import anthropic
 import streamlit as st
 
+from app_common import inject_apple_theme
 from config import settings
 from database.session import get_session
 from database.models import Profile
@@ -9,6 +10,7 @@ from analysis import resume_parser
 from analysis.ai_client import AIUnavailableError
 
 st.set_page_config(page_title="Profiles", page_icon="👤", layout="wide")
+inject_apple_theme()
 st.title("👤 Profiles")
 
 with get_session() as db:
