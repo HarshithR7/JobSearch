@@ -12,8 +12,26 @@ def get_by_name(db: Session, name: str) -> Profile | None:
     return db.scalar(select(Profile).where(Profile.name == name))
 
 
+def get_by_email(db: Session, email: str) -> Profile | None:
+    return db.scalar(select(Profile).where(Profile.email == email))
+
+
 def get(db: Session, profile_id: int) -> Profile | None:
     return db.get(Profile, profile_id)
+
+
+def resolve_identity(db: Session, name: str, email: str | None) -> Profile | None:
+    """Same person can drift in how they type their name across visits
+    (see: 'Harshith' vs 'Harshith Reddy Surakanti', same email, two rows
+    created before this existed) — email is the more reliable identity
+    signal when given, so it's checked first. Falls back to exact name
+    match. Returns None only when neither matches anything, meaning this
+    really is a new profile."""
+    if email:
+        by_email = get_by_email(db, email)
+        if by_email:
+            return by_email
+    return get_by_name(db, name)
 
 
 def delete_profile(db: Session, profile_id: int) -> None:

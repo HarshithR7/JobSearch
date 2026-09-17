@@ -64,9 +64,8 @@ else:
     st.subheader("Create a new profile")
     if existing_names:
         st.caption("Existing profiles: " + ", ".join(sorted(existing_names))
-                   + ". Pick your own name to create a separate profile — reusing "
-                   "one of these updates that person's profile instead. To edit an "
-                   "existing profile, use the Edit button above instead of retyping it here.")
+                   + ". A matching name OR email updates that existing profile instead of "
+                   "creating a duplicate — use your own name/email for a separate profile.")
 
 with st.form("profile_form"):
     name = st.text_input("Name", value=edit_profile.name if edit_profile else "",
@@ -109,19 +108,23 @@ with st.form("profile_form"):
     submitted = st.form_submit_button("Save profile")
 
 
-def _save_profile(name_clean: str, raw_text: str) -> None:
+def _save_profile(name_clean: str, email_clean: str, raw_text: str, target_profile_id: int | None, note: str | None) -> None:
     with get_session() as db:
-        profile = profile_repo.get_by_name(db, name_clean)
+        profile = profile_repo.get(db, target_profile_id) if target_profile_id else None
         if profile is None:
             profile = Profile(name=name_clean)
             db.add(profile)
 
-        profile.email = email.strip() or None
+        profile.name = name_clean
+        profile.email = email_clean or None
         profile.target_roles = [r.strip() for r in target_roles.split(",") if r.strip()] or None
         profile.target_tech_tags = [t.strip() for t in target_tech_tags.split(",") if t.strip()] or None
         profile.visa_status = visa_status.strip() or None
         profile.location_preference = location_preference.strip() or None
         profile.github_username = github_username.strip() or None
+
+        if note:
+            st.info(note)
 
         if raw_text and raw_text != (profile.resume_raw_text or ""):
             profile.resume_raw_text = raw_text
@@ -136,15 +139,16 @@ def _save_profile(name_clean: str, raw_text: str) -> None:
                 # Without this the exception would propagate out of get_session()
                 # and roll back the whole profile save, not just the parse step.
                 st.warning(f"Resume text saved, but not parsed yet: {exc}")
+        else:
+            st.success(f"Profile '{name_clean}' saved.")
 
-    st.session_state.pop("profiles_pending_overwrite", None)
     st.session_state.pop("profiles_editing_name", None)
-    st.success(f"Profile '{name_clean}' saved.")
     st.rerun()
 
 
 if submitted:
     name_clean = name.strip()
+    email_clean = email.strip()
     if not name_clean:
         st.error("Name is required.")
     else:
@@ -152,25 +156,19 @@ if submitted:
         if resume_file is not None:
             raw_text = resume_parser.extract_text_from_docx(resume_file.read())
 
-        is_editing_self = edit_profile is not None and edit_profile.name == name_clean
-        if name_clean in existing_names and not is_editing_self and st.session_state.get("profiles_pending_overwrite") != name_clean:
-            # A different person typing an already-taken name would otherwise
-            # silently overwrite that person's profile (get_by_name treats
-            # same name == same person) — require an explicit confirm click.
-            st.session_state["profiles_pending_overwrite"] = name_clean
-            st.session_state["profiles_pending_raw_text"] = raw_text
-        else:
-            _save_profile(name_clean, raw_text)
+        with get_session() as db:
+            # Matching by name OR email (email takes priority when both are
+            # given) means the same person re-submitting under a slightly
+            # different name — or the Edit button's locked-name path —
+            # updates one profile instead of spawning a duplicate.
+            target = profile_repo.get(db, edit_profile.id) if edit_profile else None
+            if target is None:
+                target = profile_repo.resolve_identity(db, name_clean, email_clean or None)
+            target_id = target.id if target else None
+            note = (
+                f"Matched an existing profile by email/name — updated it (now named '{name_clean}') "
+                f"instead of creating a duplicate."
+                if target is not None and target.name != name_clean else None
+            )
 
-pending_name = st.session_state.get("profiles_pending_overwrite")
-if pending_name:
-    st.warning(f"A profile named **{pending_name}** already exists. Saving will update "
-               f"that profile, not create a separate one — if this isn't your existing "
-               f"profile, go back and pick a different name instead.")
-    col1, col2 = st.columns(2)
-    if col1.button(f"Yes, update '{pending_name}'"):
-        _save_profile(pending_name, st.session_state.get("profiles_pending_raw_text", ""))
-    if col2.button("Cancel"):
-        st.session_state.pop("profiles_pending_overwrite", None)
-        st.session_state.pop("profiles_pending_raw_text", None)
-        st.rerun()
+        _save_profile(name_clean, email_clean, raw_text, target_id, note)
