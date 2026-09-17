@@ -42,12 +42,16 @@ def search(query: str, num: int = 10) -> list[dict]:
 
 
 def discover_companies(tech_tags: list[str] = TECH_TAGS) -> list[dict]:
-    """Runs one 'X startup careers hiring' query per tag and returns
-    candidate (company_name, website, careers_url, technology_tag) dicts,
-    deduped by domain. Company name is a rough guess from the result title
-    — always landed with needs_review=True by the caller, same as every
-    other discovery source, since this is inherently noisier than an ATS
-    API returning structured data."""
+    """Runs two queries per tag — 'X startup careers hiring' and 'X careers
+    hiring' — and returns candidate (company_name, website, careers_url,
+    technology_tag) dicts, deduped by domain. The "startup"-qualified query
+    alone was silently excluding every large/established company (Cisco,
+    HPE, Silicon Labs, Microchip, ...) that's still directly relevant to a
+    profile's tech tags — a user pointed out jobright.ai surfaces exactly
+    those names and asked why this dashboard didn't. Company name is a
+    rough guess from the result title — always landed with needs_review=True
+    by the caller, same as every other discovery source, since this is
+    inherently noisier than an ATS API returning structured data."""
     if not (settings.GOOGLE_CSE_KEY and settings.GOOGLE_CSE_CX):
         return []
 
@@ -55,6 +59,7 @@ def discover_companies(tech_tags: list[str] = TECH_TAGS) -> list[dict]:
     candidates = []
     for tag in tech_tags:
         results = search(f'"{tag}" startup careers hiring -site:linkedin.com -site:indeed.com')
+        results += search(f'"{tag}" careers hiring -site:linkedin.com -site:indeed.com')
         for item in results:
             link = item.get("link", "")
             if not link or RESULT_URL_JUNK.search(link):
