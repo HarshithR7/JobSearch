@@ -25,14 +25,17 @@ def _get_client() -> anthropic.Anthropic:
     return _client
 
 
-def complete_json(system: str, user: str, max_tokens: int = 2000) -> dict:
+def complete_json(system: str, user: str, max_tokens: int = 2000, model: str | None = None) -> dict:
     """Sends one message, asks for a strict JSON object back, and parses it.
     Raises AIUnavailableError if no key is configured, or json.JSONDecodeError
     if the model didn't return valid JSON (callers should let that surface —
-    silently guessing at malformed output risks fabricated data)."""
+    silently guessing at malformed output risks fabricated data).
+    model overrides settings.ANTHROPIC_MODEL — used by job_matcher.score_job
+    to route high-volume scoring calls to the cheaper ANTHROPIC_MODEL_FAST
+    tier instead of the default."""
     client = _get_client()
     response = client.messages.create(
-        model=settings.ANTHROPIC_MODEL,
+        model=model or settings.ANTHROPIC_MODEL,
         max_tokens=max_tokens,
         system=system,
         messages=[{"role": "user", "content": user}],

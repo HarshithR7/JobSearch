@@ -9,6 +9,7 @@ import html
 import re
 
 from analysis.ai_client import complete_json
+from config import settings
 
 WEIGHTS = {
     "required_skills": 25,
@@ -58,7 +59,14 @@ def score_job(resume_structured: dict, job_title: str, job_description: str, com
         f"COMPANY CONTEXT: {company_context}\n"
         f"JOB DESCRIPTION:\n{job_description[:6000]}"
     )
-    result = complete_json(SYSTEM_PROMPT, user_prompt, max_tokens=1200)
+    # ANTHROPIC_MODEL_FAST (Haiku by default): this is a high-volume, bounded
+    # -output classification call against a fixed JSON schema, not open-ended
+    # writing — doesn't need Sonnet-level reasoning. Sonnet stays the default
+    # for resume parsing/tailoring/prep generation (low-volume, higher-stakes).
+    # max_tokens bumped from 1200: a truncated response used to crash the
+    # whole batch (json.JSONDecodeError, uncaught) — see main.py's per-posting
+    # try/except for the other half of that fix.
+    result = complete_json(SYSTEM_PROMPT, user_prompt, max_tokens=1500, model=settings.ANTHROPIC_MODEL_FAST)
 
     sub_scores = result["sub_scores"]
     overall = round(sum(sub_scores[factor] * weight for factor, weight in WEIGHTS.items()) / 100)
@@ -266,4 +274,32 @@ def detect_work_auth_flags(job_title: str, job_description: str) -> dict:
         "no_sponsorship": bool(no_sponsorship_hits),
         "sponsorship_mentioned": bool(sponsorship_hits),
         "matched_phrases": citizenship_hits + clearance_hits + no_sponsorship_hits + sponsorship_hits,
+    }
+
+
+# --- Experience-level screening (free, regex-based) ------------------------
+# score_job_free() only checks technical-keyword overlap — it has no concept
+# of seniority or years-of-experience at all, so a posting requiring "8+
+# years" for a "Sr. Staff" role can still hit 100% on 3/3 keyword matches.
+# Rather than guess at the candidate's own years from messy free-text resume
+# dates (fragile, easy to get wrong in a way that's hard to notice), this
+# only surfaces what the POSTING asks for, as a visible flag alongside the
+# score — same "separate signal, not a score adjustment" principle as
+# detect_work_auth_flags.
+
+YEARS_REQUIRED_RE = re.compile(
+    r"(\d{1,2})\s*\+?\s*(?:-\s*\d{1,2}\s*)?years?\s+(?:of\s+)?(?:relevant\s+|professional\s+|related\s+)?experience",
+    re.IGNORECASE,
+)
+
+SENIOR_TITLE_MARKERS = ("sr.", "sr ", "senior", "staff", "principal", "director", "vp ", "head of", "chief", "lead ")
+
+
+def detect_experience_signal(job_title: str, job_description: str) -> dict:
+    text = _clean_text(f"{job_title} {job_description}")
+    years_found = [int(m.group(1)) for m in YEARS_REQUIRED_RE.finditer(text)]
+    title_lower = job_title.lower()
+    return {
+        "min_years_required": max(years_found) if years_found else None,
+        "senior_title": any(marker in title_lower for marker in SENIOR_TITLE_MARKERS),
     }

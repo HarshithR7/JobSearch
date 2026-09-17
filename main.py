@@ -1,10 +1,12 @@
 import argparse
 
+import anthropic
+
 from config import logger
 from database.init_db import create_tables
 from database.session import get_session
 from database.repositories import profile_repo, job_repo, match_repo, prep_repo
-from database.models import Company
+from database.models import Company, JobPosting
 from analysis import job_matcher, resume_tailor, prep_generator
 
 
@@ -18,7 +20,7 @@ def scan_jobs():
     return run_scan()
 
 
-def match_jobs(profile_name: str | None, engine: str = "free"):
+def match_jobs(profile_name: str | None, engine: str = "free", limit: int | None = None):
     """One short-lived DB session per posting, with the slow Claude call
     happening outside any session — scoring hundreds of postings can take
     many minutes, and holding a single transaction open that whole time
@@ -47,9 +49,20 @@ def match_jobs(profile_name: str | None, engine: str = "free"):
             continue
 
         with get_session() as db:
-            # No cap for the free engine (no per-job cost); the AI engine
-            # keeps list_live's default 500-posting cap to bound spend.
-            postings = job_repo.list_live(db, limit=100_000) if engine == "free" else job_repo.list_live(db)
+            if engine == "ai" and limit:
+                # Validating a capped/costed AI pass should prioritize the
+                # postings a wrong free-engine score costs the most on —
+                # the profile's current top-scored matches — not arbitrary
+                # recency (see: the d-matrix "100% but wants 8+ years" report).
+                top_matches = match_repo.top_for_profile(db, profile.id, limit=limit)
+                postings = [
+                    p for p in (db.get(JobPosting, m.job_posting_id) for m in top_matches)
+                    if p is not None and p.status == "live"
+                ]
+            elif engine == "free":
+                postings = job_repo.list_live(db, limit=100_000)  # no cap — no per-job cost
+            else:
+                postings = job_repo.list_live(db, limit=limit or 500)
         logger.info(f"{profile.name}: scoring {len(postings)} live postings ({engine} engine)")
 
         for i, posting in enumerate(postings, start=1):
@@ -60,12 +73,22 @@ def match_jobs(profile_name: str | None, engine: str = "free"):
                 company = db.get(Company, posting.company_id)
                 company_context = f"{company.name} — {company.description or ''}" if company else ""
 
-            result = score_fn(
-                profile.resume_structured,
-                posting.title,
-                posting.raw_description or posting.title,
-                company_context=company_context,
-            )
+            try:
+                result = score_fn(
+                    profile.resume_structured,
+                    posting.title,
+                    posting.raw_description or posting.title,
+                    company_context=company_context,
+                )
+            except (ValueError, anthropic.APIError) as exc:
+                # ValueError covers json.JSONDecodeError (e.g. the model's JSON
+                # response got truncated mid-string) — one bad response used to
+                # crash the entire batch, losing every posting after it. Skip
+                # this posting (no match row written for it — never fabricate
+                # a score) and keep going; postings already scored this run
+                # stay committed since each upsert is its own session.
+                logger.warning(f"{profile.name}: failed to score posting {posting.id} ({posting.title[:60]!r}): {exc}")
+                continue
 
             with get_session() as db:
                 match_repo.upsert(
@@ -139,6 +162,12 @@ def main():
         help="match-jobs scoring engine: 'free' (default) = keyword overlap, no API calls, no cost, "
              "scores every live posting. 'ai' = Claude-scored, real cost per posting, capped at 500 postings.",
     )
+    parser.add_argument(
+        "--limit", type=int, required=False,
+        help="match-jobs: cap the number of postings scored. With --engine ai, also changes selection "
+             "to the profile's current top-scored postings (highest value target for a paid validation "
+             "pass) instead of most-recent. Ignored by --engine free (always scores every live posting).",
+    )
     args = parser.parse_args()
 
     if args.command == "init-db":
@@ -146,7 +175,7 @@ def main():
     elif args.command == "scan-jobs":
         scan_jobs()
     elif args.command == "match-jobs":
-        match_jobs(args.profile, args.engine)
+        match_jobs(args.profile, args.engine, args.limit)
     elif args.command == "tailor-resume":
         if not (args.profile and args.job_id):
             parser.error("tailor-resume requires --profile and --job-id")

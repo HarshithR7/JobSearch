@@ -78,7 +78,7 @@ python main.py scan-jobs
 # Score live postings against a profile's resume (omit --profile for all profiles).
 # Default engine is "free" — keyword/skill-overlap matching, zero API calls, zero cost,
 # scores every live posting. Safe to run daily/in cron.
-python main.py match-jobs --profile Harshith
+python main.py match-jobs --profile Harshith  # RUN FREE
 
 # Higher-quality Claude-scored pass (real per-posting cost — see "Known account-level
 # blockers" below for the math; capped at the 500 most-recent live postings). Use this

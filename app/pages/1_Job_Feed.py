@@ -10,7 +10,7 @@ from database.models import JobPosting, Company
 from database.repositories import match_repo, application_repo
 from analysis import gap_advisor
 from analysis.ai_client import AIUnavailableError
-from analysis.job_matcher import detect_work_auth_flags, strip_html
+from analysis.job_matcher import detect_experience_signal, detect_work_auth_flags, strip_html
 
 # Free-text visa_status values that mean "does not need employer
 # sponsorship" — anything else (F1, OPT, STEM OPT, H-1B, blank, ...) is
@@ -102,7 +102,7 @@ def _relative_time(dt: datetime | None) -> str:
     return f"{days}d ago" if days < 30 else dt.date().isoformat()
 
 
-def _work_auth_badges(work_auth: dict, needs_sponsorship: bool | None, company: Company | None) -> str:
+def _work_auth_badges(work_auth: dict, needs_sponsorship: bool | None, company: Company | None, experience: dict) -> str:
     pills = []
     if work_auth["citizenship_required"]:
         pills.append('<span class="jc-pill jc-pill-red">⚠ Citizenship required</span>')
@@ -114,6 +114,14 @@ def _work_auth_badges(work_auth: dict, needs_sponsorship: bool | None, company: 
         pills.append('<span class="jc-pill jc-pill-green">✓ Sponsorship mentioned</span>')
     if company and company.visa_sponsor_known:
         pills.append('<span class="jc-pill jc-pill-green">H-1B history on record</span>')
+    if experience.get("min_years_required"):
+        # Flag only, never a score adjustment — the free engine has no way
+        # to know the candidate's own years of experience (see: the
+        # d-matrix "100% but wants 8+ years" report), so this just makes
+        # the requirement visible instead of silently invisible.
+        pills.append(f'<span class="jc-pill jc-pill-yellow">⏳ Wants {experience["min_years_required"]}+ yrs exp</span>')
+    elif experience.get("senior_title"):
+        pills.append('<span class="jc-pill jc-pill-yellow">⏳ Senior-level title</span>')
     return "".join(pills)
 
 
@@ -125,6 +133,7 @@ def _render_job_card(r: dict, needs_sponsorship: bool | None, status_badge: str 
     # before this ever reached a browser.
     posting, company, match = r["posting"], r["company"], r["match"]
     work_auth = r.get("work_auth") or detect_work_auth_flags(posting.title, posting.raw_description or "")
+    experience = r.get("experience") or detect_experience_signal(posting.title, posting.raw_description or "")
 
     with st.container(border=True):
         col_main, col_score = st.columns([5, 1])
@@ -145,7 +154,7 @@ def _render_job_card(r: dict, needs_sponsorship: bool | None, status_badge: str 
             if posting.remote_flag:
                 loc_bits.append("Remote")
             st.markdown(f'<div class="jc-sub">{" · ".join(loc_bits)}</div>', unsafe_allow_html=True)
-            badges = _work_auth_badges(work_auth, needs_sponsorship, company)
+            badges = _work_auth_badges(work_auth, needs_sponsorship, company, experience)
             if badges:
                 st.markdown(badges, unsafe_allow_html=True)
         with col_score:
@@ -200,6 +209,7 @@ if not rows:
 
 for r in rows:
     r["work_auth"] = detect_work_auth_flags(r["posting"].title, r["posting"].raw_description or "")
+    r["experience"] = detect_experience_signal(r["posting"].title, r["posting"].raw_description or "")
 
 needs_sponsorship = (profile.visa_status or "").strip().lower() not in NO_SPONSORSHIP_NEEDED_STATUSES
 if not profile.visa_status:

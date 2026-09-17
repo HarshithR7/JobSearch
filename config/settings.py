@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     # AI
     ANTHROPIC_API_KEY: str | None = None
     ANTHROPIC_MODEL: str = "claude-sonnet-5"
+    # Cheaper/faster tier for high-volume, bounded-output calls (job-match
+    # scoring against a fixed JSON schema) where Sonnet-level reasoning
+    # isn't needed. Resume parsing/tailoring/prep generation stay on
+    # ANTHROPIC_MODEL — those are low-volume and higher-stakes (a tailored
+    # resume is what actually goes out to an employer).
+    ANTHROPIC_MODEL_FAST: str = "claude-haiku-4-5-20251001"
 
     # Optional collectors
     GOOGLE_CSE_KEY: str | None = None
