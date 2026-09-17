@@ -46,6 +46,8 @@ lsof -ti:8501 | xargs -r kill
 
 **Nothing showing up on Job Feed?** That page needs a *parsed* resume — go to **Profiles**, and once `ANTHROPIC_API_KEY` has billing credits, paste/upload a resume there (it auto-parses on save). Companies/Applications/Profiles all work today without any AI key.
 
+**Adding a second person (e.g. a friend):** this was designed multi-profile from the start — every table that matters (`job_match`, `application`, `resume_version`) is scoped by `profile_id`, so each person's matches, pipeline, and tailored resumes are fully independent. On the **Profiles** page, have them fill in the form with their *own* name and resume — if they type a name that already exists, they'll get a confirmation prompt before it overwrites that person's profile instead of creating a new one. Existing profiles can be edited (prefills the form, so untouched fields aren't blanked out) or deleted (cascades through their matches/applications/resume versions) from the "Existing profiles" list at the top of that page. The sidebar profile picker on every other page then switches between whoever's been added. `python main.py match-jobs` (no `--profile`) scores every profile's resume against live postings in one run, which is what the daily cron does.
+
 ## Folder guide
 - `app/` — Streamlit shell (`app.py`) + pages (Job Feed, Companies, Applications, Resume Studio, Prep Center, Profiles)
 - `config/` — pydantic-settings config + logging
