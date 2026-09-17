@@ -10,7 +10,7 @@ from database.models import JobPosting, Company
 from database.repositories import match_repo, application_repo
 from analysis import gap_advisor
 from analysis.ai_client import AIUnavailableError
-from analysis.job_matcher import detect_experience_signal, detect_work_auth_flags, strip_html
+from analysis.job_matcher import detect_experience_signal, detect_work_auth_flags, is_likely_us_posting, strip_html
 
 # Free-text visa_status values that mean "does not need employer
 # sponsorship" — anything else (F1, OPT, STEM OPT, H-1B, blank, ...) is
@@ -144,6 +144,8 @@ def _render_job_card(r: dict, needs_sponsorship: bool | None, status_badge: str 
                 top_pills.append(f'<span class="jc-pill jc-pill-blue">{rel}</span>')
             if posting.source in EXTERNAL_SOURCES:
                 top_pills.append(f'<span class="jc-pill jc-pill-gray">via {posting.source}</span>')
+            if is_likely_us_posting(posting.location) is False:
+                top_pills.append('<span class="jc-pill jc-pill-gray">🌍 Non-US</span>')
             if status_badge:
                 top_pills.append(f'<span class="jc-pill jc-pill-gray">{status_badge}</span>')
             st.markdown("".join(top_pills), unsafe_allow_html=True)
@@ -165,10 +167,10 @@ def _render_job_card(r: dict, needs_sponsorship: bool | None, status_badge: str 
 
         if match.rationale:
             st.caption(match.rationale)
-        if match.matched_skills:
-            st.markdown("✓ " + ", ".join(match.matched_skills))
-        if match.missing_skills:
-            st.markdown("⚠ Missing: " + ", ".join(match.missing_skills))
+        skill_pills = "".join(f'<span class="jc-pill jc-pill-green">✓ {s}</span>' for s in (match.matched_skills or []))
+        skill_pills += "".join(f'<span class="jc-pill jc-pill-yellow">△ {s}</span>' for s in (match.missing_skills or []))
+        if skill_pills:
+            st.markdown(skill_pills, unsafe_allow_html=True)
 
         if posting.raw_description and st.checkbox("Show full job description", key=f"{key_prefix}_show_desc_{posting.id}"):
             st.write(strip_html(posting.raw_description))
@@ -241,6 +243,7 @@ tab_recommended, tab_liked, tab_applied, tab_external = st.tabs([
 ])
 
 with tab_recommended:
+    st.caption("🟢 skill you have · 🟡 skill gap · 🔴 possible work-auth barrier — colors are consistent everywhere on this page")
     search = st.text_input("🔍 Search by title or company", key="jf_search")
     tech_options = sorted({r["company"].technology_tag for r in rows if r["company"] and r["company"].technology_tag})
     col_a, col_b, col_c, col_d = st.columns(4)
@@ -253,6 +256,13 @@ with tab_recommended:
              "no-sponsorship language detected in the text. Screening signal only "
              "— verify independently before ruling a job out.",
     )
+    us_only = st.checkbox(
+        "US jobs only",
+        help="Hides postings whose location text matches a known non-US signal "
+             "(country/city name). Postings with no location text, or no signal "
+             "either way, are kept by default — this isn't a confirmed-US filter, "
+             "just a best-effort exclusion of clearly non-US postings.",
+    )
 
     search_lower = search.strip().lower()
     filtered = [
@@ -262,6 +272,7 @@ with tab_recommended:
         and (not tech_filter or (r["company"] and r["company"].technology_tag in tech_filter))
         and (not hide_barriers or not (r["work_auth"]["citizenship_required"] or r["work_auth"]["clearance_required"]
                                         or (r["work_auth"]["no_sponsorship"] and needs_sponsorship)))
+        and (not us_only or is_likely_us_posting(r["posting"].location) is not False)
         and (not search_lower or search_lower in r["posting"].title.lower()
              or (r["company"] and search_lower in r["company"].name.lower()))
     ]

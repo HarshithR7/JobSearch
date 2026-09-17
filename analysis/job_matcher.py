@@ -169,22 +169,36 @@ MIN_REQUIRED_KEYWORDS = 3  # below this, len(matched)/len(job_required) is noise
 _EXPERIENCE_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
 _PRESENT_RE = re.compile(r"\bpresent\b|\bcurrent\b|\bnow\b", re.IGNORECASE)
 
+# A "10+ years experience" requirement means professional experience, not
+# internship/TA time — counting those equally would misrepresent an early-
+# career candidate as more senior than they are (caught via a real report:
+# "because i have internship, teaching assistant" experience, not the years
+# a naive full-resume span would suggest).
+_NON_PROFESSIONAL_TITLE_MARKERS = ("intern", "teaching assistant", "student assistant", "research assistant")
+
 
 def estimate_years_experience(resume_structured: dict) -> int | None:
-    """Rough career-span estimate (earliest year to latest year across all
-    experience.dates fields) — not a precise total-months calculation,
-    since free-text date formats vary too much to parse exactly. Only
-    feeds a bounded penalty below, never a hard cutoff, so an imperfect
-    estimate discounts a score rather than zeroing it out."""
-    years = []
+    """Sums each qualifying entry's own (end - start) duration — not an
+    overall min-to-max span across all entries, which would count a gap
+    between jobs (e.g. internship ends 2022, next role starts 2025) as
+    3 years of experience that was never actually worked. Excludes
+    internship/TA/research-assistant titles. Still a rough parse of
+    free-text resume dates, not exact — feeds a bounded penalty, never a
+    hard cutoff."""
+    total_years = 0
+    counted_any = False
     for exp in resume_structured.get("experience", []) or []:
+        title_lower = (exp.get("title", "") or "").lower()
+        if any(marker in title_lower for marker in _NON_PROFESSIONAL_TITLE_MARKERS):
+            continue
         dates_text = exp.get("dates", "") or ""
-        years.extend(int(y) for y in _EXPERIENCE_YEAR_RE.findall(dates_text))
+        years_found = [int(y) for y in _EXPERIENCE_YEAR_RE.findall(dates_text)]
         if _PRESENT_RE.search(dates_text):
-            years.append(datetime.now().year)
-    if not years:
-        return None
-    return max(0, max(years) - min(years))
+            years_found.append(datetime.now().year)
+        if len(years_found) >= 2:
+            total_years += max(0, max(years_found) - min(years_found))
+            counted_any = True
+    return total_years if counted_any else None
 
 
 def score_job_free(resume_structured: dict, job_title: str, job_description: str, company_context: str = "") -> dict:
@@ -378,3 +392,39 @@ def detect_experience_signal(job_title: str, job_description: str) -> dict:
         "min_years_required": max(years_found) if years_found else None,
         "senior_title": any(marker in title_lower for marker in SENIOR_TITLE_MARKERS),
     }
+
+
+# --- US-location screening (free, keyword-based) ---------------------------
+# Collectors pull from global sources (RemoteOK, HN Hiring, some companies'
+# own multi-country career pages) — for a profile that specifically needs a
+# US employer (e.g. visa sponsorship), a "Remote - Europe" or "Bangalore"
+# posting is noise, not a match, no matter how well the skills line up.
+# location is free text with no structured country field, so this is a
+# denylist of non-US signals rather than a US allowlist — a location with
+# no markers defaults to "likely US, unconfirmed" rather than being
+# excluded, since most of this dashboard's company base already skews US
+# and an incomplete allowlist would false-exclude real US postings.
+
+_NON_US_LOCATION_MARKERS = (
+    "united kingdom", "london", "germany", "aachen", "berlin", "munich",
+    "netherlands", "amsterdam", "france", "paris", "india", "bangalore",
+    "bengaluru", "hyderabad", "pune", "mumbai", "delhi", "china", "beijing",
+    "shanghai", "shenzhen", "taiwan", "taipei", "japan", "tokyo",
+    "south korea", "seoul", "singapore", "malaysia", "bayan lepas", "canada",
+    "toronto", "vancouver", "ontario", "australia", "sydney", "melbourne",
+    "israel", "tel aviv", "ireland", "dublin", "switzerland", "zurich",
+    "spain", "italy", "sweden", "poland", "mexico", "brazil",
+    "remote - europe", "remote - apac", "remote - international", "remote - emea",
+)
+_UK_RE = re.compile(r"\buk\b", re.IGNORECASE)
+
+
+def is_likely_us_posting(location: str | None) -> bool | None:
+    """True = US signal found or no signal either way (default), False =
+    a non-US signal was found, None = no location text at all to judge."""
+    if not location:
+        return None
+    loc_lower = location.lower()
+    if _UK_RE.search(loc_lower) or any(marker in loc_lower for marker in _NON_US_LOCATION_MARKERS):
+        return False
+    return True
