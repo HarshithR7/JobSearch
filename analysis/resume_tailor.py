@@ -66,6 +66,34 @@ def render_docx(tailored: dict, candidate_name: str, contact_line: str) -> bytes
     return buffer.getvalue()
 
 
+def render_docx_from_text(generated_text: str, candidate_name: str, contact_line: str) -> bytes:
+    """Fallback for resume_version rows saved before the structured
+    tailored dict was persisted (only flat generated_text survives) — same
+    idea as render_docx() but working from to_plain_text()'s own output
+    format, so it round-trips without fabricating structure that isn't
+    there. Bullet lines ("- ...") become List Bullet paragraphs, blank
+    lines become spacing, everything else is a plain paragraph — no
+    Summary/Experience/Projects headers, since flat text doesn't mark
+    section boundaries."""
+    document = docx.Document()
+    document.add_heading(candidate_name, level=1)
+    document.add_paragraph(contact_line)
+    document.add_paragraph("")
+
+    for line in generated_text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("- "):
+            document.add_paragraph(stripped[2:], style="List Bullet")
+        else:
+            document.add_paragraph(stripped)
+
+    buffer = io.BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
 def to_plain_text(tailored: dict) -> str:
     lines = [tailored.get("summary", ""), ""]
     for job in tailored.get("experience", []):

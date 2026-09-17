@@ -46,7 +46,10 @@ if st.button("Generate tailored resume"):
             docx_bytes = resume_tailor.render_docx(
                 tailored, profile.name, profile.email or ""
             )
-            version = ResumeVersion(profile_id=profile.id, job_posting_id=posting.id, generated_text=text, model_used="claude")
+            version = ResumeVersion(
+                profile_id=profile.id, job_posting_id=posting.id, generated_text=text,
+                tailored_structured=tailored, model_used="claude",
+            )
             db.add(version)
             db.flush()
             st.session_state["last_tailored_text"] = text
@@ -94,6 +97,23 @@ else:
             label += f" — {posting.title} @ {company.name if company else '?'}"
         with st.expander(label):
             st.text_area("Text", v.generated_text, height=250, key=f"past_resume_{v.id}", label_visibility="collapsed")
+            if v.tailored_structured:
+                # Properly formatted (Summary/Experience/Projects/Skills
+                # headings) — available for every version generated after
+                # tailored_structured started being saved.
+                docx_bytes = resume_tailor.render_docx(v.tailored_structured, profile.name, profile.email or "")
+            else:
+                # Older row from before that column existed — only the flat
+                # text survives, so the .docx is reconstructed from it
+                # (bullet lines vs. paragraphs only, no section headings).
+                docx_bytes = resume_tailor.render_docx_from_text(v.generated_text, profile.name, profile.email or "")
+            st.download_button(
+                "Download as .docx",
+                data=docx_bytes,
+                file_name=f"{profile.name.replace(' ', '_')}_resume_v{v.id}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key=f"download_docx_{v.id}",
+            )
             st.download_button(
                 "Download as .txt",
                 data=v.generated_text,
