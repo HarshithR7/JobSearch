@@ -73,8 +73,15 @@ python -m scripts.seed_companies    # one-time import of the startups spreadshee
 # Daily pipeline (also runs automatically via .github/workflows/daily-job-scan.yml)
 python main.py scan-jobs
 
-# Score live postings against a profile's resume (omit --profile for all profiles)
+# Score live postings against a profile's resume (omit --profile for all profiles).
+# Default engine is "free" — keyword/skill-overlap matching, zero API calls, zero cost,
+# scores every live posting. Safe to run daily/in cron.
 python main.py match-jobs --profile Harshith
+
+# Higher-quality Claude-scored pass (real per-posting cost — see "Known account-level
+# blockers" below for the math; capped at the 500 most-recent live postings). Use this
+# selectively on your current shortlist, not as the daily default.
+python main.py match-jobs --profile Harshith --engine ai
 
 # Tailor a resume for a specific job (job-id from the job_posting table / Resume Studio page)
 python main.py tailor-resume --profile Harshith --job-id 123
@@ -91,6 +98,16 @@ python -m streamlit run app/app.py
 - AI-generated resumes are constrained to a profile's structured master resume (`Profile.resume_structured`) — they reorder/reword, never invent employers, skills, or metrics. Every tailored version is stored, never overwritten (`resume_version` table).
 - `requirements-cloud.txt` is the slim dependency set for Streamlit Community Cloud / CI (drops `openpyxl`, `pytest`).
 
+## Match-jobs cost (why the default engine is "free")
+`analysis/job_matcher.score_job()` (Claude-scored) costs real money: roughly 2,450 input +
+400 output tokens per posting ≈ **$0.013/posting** at Sonnet-tier pricing. Scoring 500
+postings × 2 profiles = 1,000 calls ≈ **$13/run** — and `daily-job-scan.yml` runs *daily*,
+not weekly, so left on `--engine ai` that's ~$390/month. `analysis/job_matcher.score_job_free()`
+(the default) does keyword/skill-overlap matching against `Profile.resume_structured` with
+zero API calls — cruder (no semantic reasoning, no rationale, vocabulary-limited "missing
+skills"), but free, and unbounded (scores every live posting, not just the 500 most recent).
+Use `--engine ai` selectively on your current shortlist when you want a real second opinion.
+
 ## Known account-level blockers (not code issues)
-- **Anthropic billing**: `ANTHROPIC_API_KEY` is configured but currently has no credits (confirmed via a live `400 — credit balance too low` response). Every AI feature — resume parsing (Profiles page), job match scoring (`match-jobs` / Job Feed), resume tailoring (Resume Studio), interview prep (Prep Center), and the Skills Gap recommendations (Job Feed) — needs credits added at [console.anthropic.com](https://console.anthropic.com) before it will produce results. The pages now fail gracefully (a warning, not a crash) when this happens instead of losing unsaved data.
+- **Anthropic billing**: `ANTHROPIC_API_KEY` is configured but currently has no credits (confirmed via a live `400 — credit balance too low` response). This blocks resume parsing (Profiles page) — which every downstream feature depends on, including the free matcher (it needs `resume_structured` to exist) — plus `--engine ai` scoring, resume tailoring (Resume Studio), interview prep (Prep Center), and the Skills Gap recommendations (Job Feed). Needs credits added at [console.anthropic.com](https://console.anthropic.com) — note this is the **Developer Platform / API Console**, a separate billing pool from a claude.ai chat subscription (Pro/Team credits there do not apply here). The pages now fail gracefully (a warning, not a crash) when this happens instead of losing unsaved data.
 - **GitHub Actions billing**: the repo is pushed to `HarshithR7/JobSearch` (private) with `DATABASE_URL`/`ANTHROPIC_API_KEY` set as Actions secrets, and `daily-job-scan.yml` is registered and does trigger on schedule — but a manual test run (`gh run 35137179261`) failed immediately with *"recent account payments have failed or your spending limit needs to be increased"*. Fix in GitHub → Settings → Billing & plans, then re-run the workflow (or wait for the next 1pm UTC schedule) to confirm. This only affects the automated cron; running the dashboard/CLI locally is unaffected.

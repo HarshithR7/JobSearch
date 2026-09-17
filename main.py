@@ -18,12 +18,19 @@ def scan_jobs():
     return run_scan()
 
 
-def match_jobs(profile_name: str | None):
+def match_jobs(profile_name: str | None, engine: str = "free"):
     """One short-lived DB session per posting, with the slow Claude call
     happening outside any session — scoring hundreds of postings can take
     many minutes, and holding a single transaction open that whole time
     risks the DB dropping an idle connection before anything gets
-    committed (see the ATS-detection bug this pattern caused)."""
+    committed (see the ATS-detection bug this pattern caused).
+
+    engine="free" (default): analysis.job_matcher.score_job_free — pure
+    keyword/skill-overlap, no API calls, no cost. Safe to run daily.
+    engine="ai": analysis.job_matcher.score_job — Claude-scored, costs
+    real money per posting (see README "Known account-level blockers" for
+    the actual per-run cost math); use for a higher-quality pass on your
+    current top candidates, not for scoring thousands of postings daily."""
     with get_session() as db:
         profiles = [profile_repo.get_by_name(db, profile_name)] if profile_name else profile_repo.list_all(db)
         profiles = [p for p in profiles if p is not None]
@@ -31,24 +38,29 @@ def match_jobs(profile_name: str | None):
         logger.warning("No matching profile(s) found")
         return
 
+    score_fn = job_matcher.score_job if engine == "ai" else job_matcher.score_job_free
+    model_used = "claude" if engine == "ai" else "keyword_v1"
+
     for profile in profiles:
         if not profile.resume_structured:
             logger.warning(f"{profile.name}: no parsed resume yet — skipping (use the Profiles page first)")
             continue
 
         with get_session() as db:
-            postings = job_repo.list_live(db)
-        logger.info(f"{profile.name}: scoring {len(postings)} live postings")
+            # No cap for the free engine (no per-job cost); the AI engine
+            # keeps list_live's default 500-posting cap to bound spend.
+            postings = job_repo.list_live(db, limit=100_000) if engine == "free" else job_repo.list_live(db)
+        logger.info(f"{profile.name}: scoring {len(postings)} live postings ({engine} engine)")
 
         for i, posting in enumerate(postings, start=1):
-            if i % 25 == 0:
+            if i % 100 == 0:
                 logger.info(f"{profile.name}: scored {i}/{len(postings)} postings so far")
 
             with get_session() as db:
                 company = db.get(Company, posting.company_id)
                 company_context = f"{company.name} — {company.description or ''}" if company else ""
 
-            result = job_matcher.score_job(
+            result = score_fn(
                 profile.resume_structured,
                 posting.title,
                 posting.raw_description or posting.title,
@@ -66,7 +78,7 @@ def match_jobs(profile_name: str | None):
                     matched_skills=result["matched_skills"],
                     missing_skills=result["missing_skills"],
                     rationale=result["rationale"],
-                    model_used="claude",
+                    model_used=model_used,
                 )
 
 
@@ -122,6 +134,11 @@ def main():
     parser.add_argument("--job-id", type=int, required=False)
     parser.add_argument("--role", required=False, help="Role archetype name, e.g. 'RISC-V Verification Engineer'")
     parser.add_argument("--tech-tag", required=False)
+    parser.add_argument(
+        "--engine", choices=["free", "ai"], default="free",
+        help="match-jobs scoring engine: 'free' (default) = keyword overlap, no API calls, no cost, "
+             "scores every live posting. 'ai' = Claude-scored, real cost per posting, capped at 500 postings.",
+    )
     args = parser.parse_args()
 
     if args.command == "init-db":
@@ -129,7 +146,7 @@ def main():
     elif args.command == "scan-jobs":
         scan_jobs()
     elif args.command == "match-jobs":
-        match_jobs(args.profile)
+        match_jobs(args.profile, args.engine)
     elif args.command == "tailor-resume":
         if not (args.profile and args.job_id):
             parser.error("tailor-resume requires --profile and --job-id")
