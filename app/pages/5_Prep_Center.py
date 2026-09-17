@@ -1,3 +1,13 @@
+import sys
+from pathlib import Path
+
+# See app/app.py for why this is here.
+_root = Path(__file__).resolve().parent
+while not (_root / "app_common.py").exists() and _root != _root.parent:
+    _root = _root.parent
+if str(_root) not in sys.path:
+    sys.path.insert(0, str(_root))
+
 import anthropic
 import streamlit as st
 

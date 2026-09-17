@@ -1,3 +1,20 @@
+import sys
+from pathlib import Path
+
+# Local `python -m streamlit run app/app.py` adds the project root to
+# sys.path automatically (see README's "Run the dashboard" section) — but
+# Streamlit Community Cloud invokes this differently and doesn't, causing
+# `ModuleNotFoundError: No module named 'app_common'` on deploy even though
+# the exact same code runs fine locally. Walking up to find the actual
+# project root (rather than hardcoding a fixed number of .parent calls)
+# works the same for this file and every page under app/pages/, which sit
+# at different depths.
+_root = Path(__file__).resolve().parent
+while not (_root / "app_common.py").exists() and _root != _root.parent:
+    _root = _root.parent
+if str(_root) not in sys.path:
+    sys.path.insert(0, str(_root))
+
 import streamlit as st
 from sqlalchemy import func, select
 

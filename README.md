@@ -15,7 +15,7 @@ See `plan.md`-equivalent context in the repo history / conversation this was bui
 
 The `.venv` (Windows) and `.venv-wsl` (WSL/Ubuntu) virtualenvs are already set up in this repo with everything installed, and `.env` already has `DATABASE_URL` pointed at the live Neon DB. Pick whichever shell you're in:
 
-**Important: use `python -m streamlit`, not the `streamlit`/`streamlit.exe` binary directly.** The app imports things like `from database.session import ...` and `from app_common import ...` assuming the project root is on `sys.path` — `python -m streamlit` guarantees that (it adds the current directory); invoking the `streamlit` executable/shim directly does not, and fails with `ModuleNotFoundError: No module named 'database'`.
+`python -m streamlit` is still the recommended way to run this locally, but no longer strictly required: every page now inserts the project root into `sys.path` itself at import time (walks up from its own file location looking for `app_common.py`), so `from database.session import ...` / `from app_common import ...` resolve correctly regardless of how the process was launched. This was added specifically because **Streamlit Community Cloud** invokes the app differently and doesn't add the project root to `sys.path` the way `python -m streamlit` does locally — deploying without this fix failed with `ModuleNotFoundError: No module named 'app_common'` even though the identical code ran fine locally. Verified directly: the bare `streamlit.exe run app/app.py` invocation (previously broken, see git history) now returns 200 on every page.
 
 **Windows PowerShell:**
 ```powershell
