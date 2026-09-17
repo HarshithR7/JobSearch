@@ -26,7 +26,7 @@ def upsert(db: Session, **fields) -> Company:
 
 
 def list_with_known_ats(db: Session) -> list[Company]:
-    return list(db.scalars(select(Company).where(Company.ats_type.in_(["greenhouse", "lever", "ashby", "smartrecruiters"]))))
+    return list(db.scalars(select(Company).where(Company.ats_type.in_(["greenhouse", "lever", "ashby", "smartrecruiters", "workday"]))))
 
 
 def list_all(db: Session) -> list[Company]:

@@ -15,6 +15,20 @@ def get_json(url: str, timeout: float = DEFAULT_TIMEOUT, **kwargs) -> dict | lis
         return None
 
 
+def post_json(url: str, json_body: dict, timeout: float = DEFAULT_TIMEOUT, **kwargs) -> dict | list | None:
+    try:
+        resp = requests.post(
+            url, json=json_body, headers={"User-Agent": USER_AGENT, "Content-Type": "application/json"},
+            timeout=timeout, **kwargs,
+        )
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()
+    except requests.RequestException:
+        return None
+
+
 def get_html(url: str, timeout: float = DEFAULT_TIMEOUT, **kwargs) -> str | None:
     try:
         resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=timeout, **kwargs)

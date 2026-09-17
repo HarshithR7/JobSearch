@@ -100,9 +100,17 @@ def _detect_ats_for_unknown_companies(limit: int = 30) -> int:
             logger.info(f"ATS detection progress: {i}/{len(unknown_ids)} companies checked, {detected} detected so far")
         with get_session() as db:
             company = db.get(Company, company_id)
-            name, careers_url = company.name, company.careers_url
+            name, careers_url, website = company.name, company.careers_url, company.website
 
         ats_type, slug = ats_detect.detect(name, careers_url)
+        if ats_type is None:
+            # Workday needs its own check — candidate_slugs()/PROBERS above
+            # guess single-word slugs, but Workday's is "tenant/site" found
+            # via a subdomain redirect, not a guessable path (see
+            # ats_detect.detect_workday's docstring for why).
+            workday_slug = ats_detect.detect_workday(website)
+            if workday_slug:
+                ats_type, slug = "workday", workday_slug
 
         with get_session() as db:
             company = db.get(Company, company_id)
