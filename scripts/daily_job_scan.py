@@ -10,9 +10,30 @@ from datetime import datetime, timezone
 from config import logger
 from database.session import get_session
 from database.models import Company, SourceRunLog
-from database.repositories import company_repo, job_repo
+from database.repositories import company_repo, job_repo, profile_repo
 from collectors import ats_detect, careers_generic, google_search, hn_hiring, remoteok
 from collectors.ats_detect import FETCHERS
+
+
+def _profile_tech_tags() -> list[str]:
+    """Aggregates target_tech_tags across every profile, not just one —
+    the discovery collectors below default to a hardcoded semiconductor/
+    hardware keyword list (Harshith's own domain), which means a second
+    profile with a different background (e.g. web/software, finance,
+    biotech) would never get relevant companies discovered at all. This
+    extends discovery with whatever every profile actually says they're
+    targeting, on top of (not instead of) the original defaults."""
+    with get_session() as db:
+        profiles = profile_repo.list_all(db)
+    tags: list[str] = []
+    seen = set()
+    for p in profiles:
+        for tag in (p.target_tech_tags or []):
+            cleaned = tag.strip()
+            if cleaned and cleaned.lower() not in seen:
+                seen.add(cleaned.lower())
+                tags.append(cleaned)
+    return tags
 
 
 def _scan_known_ats_companies() -> tuple[int, int, dict]:
@@ -178,7 +199,9 @@ def _discover_via_google() -> int:
     Candidates come with a real careers_url already, so this fetches
     postings immediately rather than waiting for the next
     _discover_careers_urls pass."""
-    candidates = google_search.discover_companies()
+    extra_tags = _profile_tech_tags()
+    tags = list(dict.fromkeys(google_search.TECH_TAGS + extra_tags))  # dedupe, preserve order
+    candidates = google_search.discover_companies(tags)
     discovered = 0
     for candidate in candidates:
         with get_session() as db:
@@ -209,11 +232,16 @@ def _discover_via_google() -> int:
 
 
 def _discover_new_companies() -> int:
-    """RemoteOK + HN Who's Hiring, filtered to hardware/AI-chip keywords —
-    grows the company list beyond the seeded spreadsheet."""
+    """RemoteOK + HN Who's Hiring, filtered to hardware/AI-chip keywords
+    plus every profile's own target_tech_tags — grows the company list
+    beyond the seeded spreadsheet, and beyond just one person's domain."""
+    extra = tuple(t.lower() for t in _profile_tech_tags())
+    remoteok_keywords = remoteok.HARDWARE_KEYWORDS + extra
+    hn_keywords = hn_hiring.HARDWARE_KEYWORDS + extra
+
     discovered = 0
     with get_session() as db:
-        for job in remoteok.fetch():
+        for job in remoteok.fetch(tag_filter=remoteok_keywords):
             if not job.get("company_name"):
                 continue
             company = company_repo.upsert(db, name=job["company_name"], source="discovered", needs_review=True)
@@ -226,7 +254,7 @@ def _discover_new_companies() -> int:
             if is_new:
                 discovered += 1
 
-        for job in hn_hiring.fetch():
+        for job in hn_hiring.fetch(tag_filter=hn_keywords):
             company = company_repo.upsert(db, name=job["company_name"], source="discovered", needs_review=True)
             _, is_new = job_repo.upsert_posting(
                 db, company_id=company.id, external_id=job["external_id"], source="hn_hiring",
