@@ -11,7 +11,7 @@ from config import logger
 from database.session import get_session
 from database.models import Company, SourceRunLog
 from database.repositories import company_repo, job_repo, profile_repo
-from collectors import ats_detect, careers_generic, google_search, hn_hiring, remoteok
+from collectors import ats_detect, careers_generic, google_search, hn_hiring, linkedin_email_parser, remoteok
 from collectors.ats_detect import FETCHERS
 
 
@@ -266,6 +266,25 @@ def _discover_new_companies() -> int:
     return discovered
 
 
+def _ingest_linkedin_alerts() -> int:
+    """Per profile, not global — each person's LinkedIn job-alert emails
+    live in their own mailbox (Profile.imap_*, set on the Profiles page).
+    One profile's bad/expired credentials shouldn't take down the rest of
+    the daily scan, so each is wrapped individually."""
+    with get_session() as db:
+        profiles = profile_repo.list_all(db)
+
+    total_new = 0
+    for profile in profiles:
+        if not (profile.imap_user and profile.imap_app_password):
+            continue
+        try:
+            total_new += linkedin_email_parser.fetch_and_ingest(profile)
+        except Exception as exc:  # IMAP auth/connection errors, malformed mail, etc.
+            logger.warning(f"LinkedIn email parser failed for {profile.name}: {exc}")
+    return total_new
+
+
 def run(detect_limit: int = 40, careers_discovery_limit: int = 40) -> dict:
     logger.info("Starting daily job scan")
     # Detect first: a company detected this run should still get scanned
@@ -276,8 +295,9 @@ def run(detect_limit: int = 40, careers_discovery_limit: int = 40) -> dict:
     new_from_generic = _scan_generic_careers_pages()
     new_from_discovery = _discover_new_companies()
     new_from_google = _discover_via_google()
+    new_from_linkedin = _ingest_linkedin_alerts()
 
-    total_new = new_from_ats + new_from_generic + new_from_discovery + new_from_google
+    total_new = new_from_ats + new_from_generic + new_from_discovery + new_from_google + new_from_linkedin
     with get_session() as db:
         db.add(SourceRunLog(source="daily_job_scan", companies_checked=checked, new_postings_found=total_new, errors=errors or None))
 

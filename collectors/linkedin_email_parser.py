@@ -1,14 +1,16 @@
-"""Parses LinkedIn's own 'new jobs for you' alert emails, which Harshith
-receives normally in his own inbox — this reads his own mailbox via IMAP,
-it does not automate anything against LinkedIn's servers.
+"""Parses LinkedIn's own 'new jobs for you' alert emails — reads a
+profile's own mailbox via IMAP, does not automate anything against
+LinkedIn's servers.
 
-Setup (one-time, manual, documented in README):
+Setup (one-time, manual, documented in README), per profile:
 1. In LinkedIn job-alert settings, keep email alerts on for target searches.
 2. In Gmail, create a filter that applies a label (e.g. "LinkedIn-Alerts")
    to mail from *@linkedin.com, or set up a forwarding rule to a dedicated
    inbox.
-3. Create a Gmail App Password and set IMAP_USER/IMAP_APP_PASSWORD/IMAP_LABEL
-   in .env.
+3. Create a Gmail App Password and enter host/user/app password/label on
+   that profile's row on the Profiles page (each profile has its own
+   mailbox — this was a single global .env setting before multi-profile
+   support existed, which only ever worked for one person).
 
 LinkedIn's alert-email HTML isn't a documented/stable format, so extraction
 here is heuristic (regex + BeautifulSoup on job-view links) and best-effort
@@ -25,7 +27,7 @@ from email.message import Message
 
 from bs4 import BeautifulSoup
 
-from config import settings, logger
+from config import logger
 from database.session import get_session
 from database.repositories import company_repo, job_repo
 from database.models import LinkedInAlertEmail
@@ -33,12 +35,12 @@ from database.models import LinkedInAlertEmail
 JOB_LINK_RE = re.compile(r"linkedin\.com/comm/jobs/view/(\d+)|linkedin\.com/jobs/view/(\d+)")
 
 
-def _connect() -> imaplib.IMAP4_SSL | None:
-    if not (settings.IMAP_USER and settings.IMAP_APP_PASSWORD):
-        logger.info("IMAP_USER/IMAP_APP_PASSWORD not set — skipping LinkedIn email parsing")
+def _connect(imap_host: str, imap_user: str, imap_app_password: str) -> imaplib.IMAP4_SSL | None:
+    if not (imap_user and imap_app_password):
+        logger.info("No IMAP credentials for this profile — skipping LinkedIn email parsing")
         return None
-    conn = imaplib.IMAP4_SSL(settings.IMAP_HOST)
-    conn.login(settings.IMAP_USER, settings.IMAP_APP_PASSWORD)
+    conn = imaplib.IMAP4_SSL(imap_host)
+    conn.login(imap_user, imap_app_password)
     return conn
 
 
@@ -92,18 +94,22 @@ def _parse_jobs_from_html(html: str) -> list[dict]:
     return jobs
 
 
-def fetch_and_ingest(profile_id: int) -> int:
-    """Fetches unprocessed messages from IMAP_LABEL, parses job links, and
-    records new JobPosting rows tagged source='linkedin_alert'. Returns the
-    count of new postings created. Safe to run repeatedly (dedupes by
-    message-id and by job external_id)."""
-    conn = _connect()
+def fetch_and_ingest(profile) -> int:
+    """Fetches unprocessed messages from this profile's own IMAP mailbox
+    (profile.imap_host/imap_user/imap_app_password/imap_label — set on the
+    Profiles page), parses job links, and records new JobPosting rows
+    tagged source='linkedin_alert'. Returns the count of new postings
+    created. Safe to run repeatedly (dedupes by message-id and by job
+    external_id). Returns 0 without attempting a connection if this
+    profile hasn't configured IMAP credentials."""
+    conn = _connect(profile.imap_host or "imap.gmail.com", profile.imap_user, profile.imap_app_password)
     if conn is None:
         return 0
 
+    label = profile.imap_label or "LinkedIn-Alerts"
     new_postings = 0
     try:
-        conn.select(f'"{settings.IMAP_LABEL}"')
+        conn.select(f'"{label}"')
         status, data = conn.search(None, "ALL")
         if status != "OK":
             return 0
@@ -136,9 +142,9 @@ def fetch_and_ingest(profile_id: int) -> int:
                         if is_new:
                             new_postings += 1
 
-                db.add(LinkedInAlertEmail(profile_id=profile_id, message_id=message_id))
+                db.add(LinkedInAlertEmail(profile_id=profile.id, message_id=message_id))
     finally:
         conn.logout()
 
-    logger.info(f"LinkedIn email parser: {new_postings} new postings ingested")
+    logger.info(f"LinkedIn email parser ({profile.name}): {new_postings} new postings ingested")
     return new_postings

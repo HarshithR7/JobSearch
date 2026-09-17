@@ -88,12 +88,27 @@ def match_jobs(profile_name: str | None, engine: str = "free", limit: int | None
                 company_context = f"{company.name} — {company.description or ''}" if company else ""
 
             try:
-                result = score_fn(
-                    profile.resume_structured,
-                    posting.title,
-                    posting.raw_description or posting.title,
-                    company_context=company_context,
-                )
+                if engine == "free":
+                    # Optional — score_job_free() blends this in only when
+                    # both embeddings are actually present (backfilled
+                    # separately, see scripts/backfill_embeddings.py and
+                    # the Profiles page); missing either just falls back to
+                    # keyword-only scoring, no error.
+                    result = score_fn(
+                        profile.resume_structured,
+                        posting.title,
+                        posting.raw_description or posting.title,
+                        company_context=company_context,
+                        resume_embedding=profile.resume_embedding,
+                        job_embedding=posting.embedding,
+                    )
+                else:
+                    result = score_fn(
+                        profile.resume_structured,
+                        posting.title,
+                        posting.raw_description or posting.title,
+                        company_context=company_context,
+                    )
             except (ValueError, anthropic.APIError) as exc:
                 # ValueError covers json.JSONDecodeError (e.g. the model's JSON
                 # response got truncated mid-string) — one bad response used to

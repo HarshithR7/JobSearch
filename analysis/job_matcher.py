@@ -215,7 +215,24 @@ def estimate_years_experience(resume_structured: dict) -> int | None:
     return total_years if counted_any else None
 
 
-def score_job_free(resume_structured: dict, job_title: str, job_description: str, company_context: str = "") -> dict:
+# Real cosine-similarity distribution for this resume against a random
+# 100-posting sample: min 0.48, p50 0.70, max 0.78 — bge-small embeddings
+# for "related professional text" cluster in a tight band, not the full
+# -1..1 range, so raw cosine similarity isn't directly a 0-100 score.
+# Rescaled against that observed range instead of guessed thresholds.
+SEMANTIC_SIM_FLOOR = 0.45
+SEMANTIC_SIM_CEILING = 0.80
+
+
+def _semantic_score(similarity: float) -> int:
+    scaled = (similarity - SEMANTIC_SIM_FLOOR) / (SEMANTIC_SIM_CEILING - SEMANTIC_SIM_FLOOR) * 100
+    return max(0, min(100, round(scaled)))
+
+
+def score_job_free(
+    resume_structured: dict, job_title: str, job_description: str, company_context: str = "",
+    resume_embedding: list[float] | None = None, job_embedding: list[float] | None = None,
+) -> dict:
     """Zero-cost alternative to score_job() — no Claude call. Scores how many
     recognized skill keywords in the job posting also show up somewhere in
     the resume.
@@ -293,9 +310,32 @@ def score_job_free(resume_structured: dict, job_title: str, job_description: str
             )
 
     overall = max(0, min(100, overall))
+
+    # Semantic-similarity blend: catches conceptual matches the fixed
+    # vocabulary can't ("Tomasulo algorithm with reorder buffer" <->
+    # "out-of-order execution" — 0.74 cosine similarity, zero shared
+    # keywords). Weighted more heavily when the keyword signal was weak
+    # (nothing real to defer to) and more lightly when it was solid
+    # (keyword+experience-penalty backbone stays dominant, semantic is an
+    # adjustment, not a replacement).
+    semantic_score = None
+    if resume_embedding is not None and job_embedding is not None:
+        from analysis.embeddings import cosine_similarity
+        similarity = cosine_similarity(resume_embedding, job_embedding)
+        semantic_score = _semantic_score(similarity)
+        if len(job_required) < MIN_REQUIRED_KEYWORDS:
+            overall = round(0.3 * overall + 0.7 * semantic_score)
+        else:
+            overall = round(0.7 * overall + 0.3 * semantic_score)
+        overall = max(0, min(100, overall))
+        rationale += f" Semantic similarity: {semantic_score}/100."
+
     return {
         "overall_score": overall,
-        "sub_scores": {"keyword_overlap": keyword_score, "experience_penalty": experience_penalty},
+        "sub_scores": {
+            "keyword_overlap": keyword_score, "experience_penalty": experience_penalty,
+            "semantic_similarity": semantic_score,
+        },
         "band": band_for(overall),
         "matched_skills": matched,
         "missing_skills": missing,

@@ -26,10 +26,11 @@ class Settings(BaseSettings):
     GOOGLE_CSE_KEY: str | None = None
     GOOGLE_CSE_CX: str | None = None
 
-    IMAP_HOST: str = "imap.gmail.com"
-    IMAP_USER: str | None = None
-    IMAP_APP_PASSWORD: str | None = None
-    IMAP_LABEL: str = "LinkedIn-Alerts"
+    # IMAP credentials for collectors/linkedin_email_parser.py are per-
+    # profile (Profile.imap_host/imap_user/imap_app_password/imap_label,
+    # set on the Profiles page), not global — removed from here when that
+    # became a real per-profile feature instead of dead code hardcoded to
+    # one mailbox.
 
     # Application
     ENV: str = "development"

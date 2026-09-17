@@ -1,3 +1,5 @@
+import imaplib
+
 import anthropic
 import streamlit as st
 
@@ -8,6 +10,7 @@ from database.models import Profile
 from database.repositories import profile_repo
 from analysis import resume_parser
 from analysis.ai_client import AIUnavailableError
+from collectors import linkedin_email_parser
 
 st.set_page_config(page_title="Profiles", page_icon="👤", layout="wide")
 inject_apple_theme()
@@ -29,6 +32,16 @@ if profiles:
             st.write(f"**Target tech tags:** {', '.join(p.target_tech_tags or []) or '—'}")
             st.write(f"**Visa status:** {p.visa_status or '—'}")
             st.write(f"**GitHub:** {p.github_username or '—'}")
+            st.write(f"**LinkedIn alert inbox:** {p.imap_user or '— not configured —'}")
+
+            if p.imap_user and p.imap_app_password:
+                if st.button("📧 Check LinkedIn alerts now", key=f"check_imap_{p.id}"):
+                    try:
+                        with st.spinner("Connecting to mailbox and parsing job-alert emails..."):
+                            new_count = linkedin_email_parser.fetch_and_ingest(p)
+                        st.success(f"{new_count} new postings ingested from LinkedIn alerts.")
+                    except imaplib.IMAP4.error as exc:
+                        st.error(f"IMAP login/connection failed: {exc}")
 
             col1, col2 = st.columns(2)
             if col1.button("Edit", key=f"edit_{p.id}"):
@@ -99,6 +112,29 @@ with st.form("profile_form"):
         value=(edit_profile.github_username if edit_profile else None) or settings.GITHUB_USERNAME,
     )
 
+    with st.expander("📧 LinkedIn email alerts (optional)"):
+        st.caption("Reads LinkedIn's own job-alert emails from your inbox via IMAP — does not "
+                   "automate anything against LinkedIn's servers. Setup: keep LinkedIn email "
+                   "alerts on, create a Gmail filter/label for mail from *@linkedin.com, and "
+                   "generate a Gmail App Password (not your regular password) for this.")
+        imap_host = st.text_input(
+            "IMAP host", value=(edit_profile.imap_host if edit_profile else None) or "imap.gmail.com",
+        )
+        imap_user = st.text_input(
+            "Mailbox address", value=(edit_profile.imap_user if edit_profile else "") or "",
+            placeholder="you@gmail.com",
+        )
+        imap_app_password = st.text_input(
+            "App password", type="password",
+            help="Stored as-is (not encrypted) — same posture as this app's own .env secrets. "
+                 "Use a Gmail App Password, never your real account password.",
+        )
+        if edit_profile and edit_profile.imap_app_password:
+            st.caption("A password is already saved — leave blank to keep it, or enter a new one to replace it.")
+        imap_label = st.text_input(
+            "Gmail label/folder to read", value=(edit_profile.imap_label if edit_profile else None) or "LinkedIn-Alerts",
+        )
+
     st.markdown("**Resume** — paste text or upload a .docx. This becomes the immutable master resume every tailored version is constrained to.")
     if edit_profile and edit_profile.resume_raw_text:
         st.caption("Leave blank to keep the current resume as-is; paste/upload only to replace it.")
@@ -124,6 +160,11 @@ def _save_profile(name_clean: str, email_clean: str, raw_text: str, target_profi
         profile.visa_status = visa_status.strip() or None
         profile.location_preference = location_preference.strip() or None
         profile.github_username = github_username.strip() or None
+        profile.imap_host = imap_host.strip() or None
+        profile.imap_user = imap_user.strip() or None
+        if imap_app_password:  # blank means "keep the existing one", not "clear it"
+            profile.imap_app_password = imap_app_password
+        profile.imap_label = imap_label.strip() or None
 
         if note:
             st.info(note)
@@ -133,6 +174,9 @@ def _save_profile(name_clean: str, email_clean: str, raw_text: str, target_profi
             try:
                 with st.spinner("Parsing resume with Claude..."):
                     profile.resume_structured = resume_parser.parse_resume_text(raw_text)
+                with st.spinner("Computing semantic embedding (local, free, no API call)..."):
+                    from analysis.embeddings import embed_text, resume_text_for_embedding
+                    profile.resume_embedding = embed_text(resume_text_for_embedding(profile.resume_structured))
                 st.success("Resume parsed and saved.")
             except (AIUnavailableError, anthropic.APIError, ValueError) as exc:
                 # Covers missing key (AIUnavailableError), any API-side failure

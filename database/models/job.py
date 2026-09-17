@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import String, Text, Boolean, DateTime, ForeignKey, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
@@ -30,6 +31,13 @@ class JobPosting(Base):
 
     status: Mapped[str] = mapped_column(String(20), default="live")  # live|stale|closed
     raw_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # BAAI/bge-small-en-v1.5 (384-dim, via fastembed) over title+description
+    # — a semantic-similarity signal alongside the free keyword scorer, see
+    # analysis/embeddings.py. Populated by scripts/backfill_embeddings.py;
+    # null for postings not yet embedded (score_job_semantic treats that
+    # as "no semantic signal" rather than erroring).
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
 
 
 class JobSnapshot(Base):
