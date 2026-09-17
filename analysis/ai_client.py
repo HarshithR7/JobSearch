@@ -34,12 +34,17 @@ def complete_json(system: str, user: str, max_tokens: int = 2000, model: str | N
     to route high-volume scoring calls to the cheaper ANTHROPIC_MODEL_FAST
     tier instead of the default."""
     client = _get_client()
+    used_model = model or settings.ANTHROPIC_MODEL
     response = client.messages.create(
-        model=model or settings.ANTHROPIC_MODEL,
+        model=used_model,
         max_tokens=max_tokens,
         system=system,
         messages=[{"role": "user", "content": user}],
     )
+    # Real usage from the API response, not an estimate — lets callers (see
+    # main.py match_jobs) log actual per-batch token spend instead of
+    # guessing at cost from a rough tokens-per-call assumption.
+    logger.info(f"AI usage ({used_model}): {response.usage.input_tokens} in / {response.usage.output_tokens} out")
     text = "".join(block.text for block in response.content if block.type == "text").strip()
     if text.startswith("```"):
         text = text.split("```")[1]
