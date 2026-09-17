@@ -23,6 +23,34 @@ SOURCE = "generic"
 JOB_LINK_HINT = re.compile(r"job|career|position|opening|role", re.IGNORECASE)
 NAV_TEXT = re.compile(r"^(home|about|contact|careers?|jobs?|apply|open positions?)$", re.IGNORECASE)
 CAREERS_LINK_TEXT = re.compile(r"career|jobs|join us|we're hiring|open positions|work with us", re.IGNORECASE)
+# Real problem this heuristic can't solve without these: on a page whose
+# entire URL namespace lives under /careers/..., JOB_LINK_HINT matches
+# almost every internal link's href regardless of what it actually points
+# to. Caught on real data: Silicon Labs' "Click Here", "View FAQs",
+# "Candidate Resource Hub", "Browse Job Openings" all got ingested as if
+# each were a distinct job posting.
+NON_JOB_LINK_TEXT = re.compile(
+    r"^(click here|view faqs?|browse .*(jobs?|positions?|openings?)|"
+    r"(candidate|hiring|recruit\w*) (resource|resources?)( hub)?|"
+    r"recruitment fraud disclaimer|privacy policy|terms of (use|service)|"
+    r"search (jobs?|openings?|positions?)|sign ?in|log ?in|create account|"
+    r"apply now|(see|view|browse) open(ing)?s?( roles?| positions?)?|open roles?|"
+    r"join( us)?( now)?|join our (talent )?(community|network)|"
+    r"(feel the difference|ai at work|explore (options|benefits)|why work here|"
+    r"career growth and learning|benefits and perks)|initiativbewerbung.*)$",
+    re.IGNORECASE,
+)
+# Workday, and other JS-rendered SPA job boards, don't put job listings in
+# the initial HTML at all — the list loads via a JS API call after the
+# page loads. A static fetch()+BeautifulSoup can only ever see the shell
+# page's nav links for these, which is exactly the false-positive pattern
+# above, no matter how the text/href heuristic is tuned. Skip ingesting
+# from these domains entirely rather than ingest nav-link garbage.
+JS_RENDERED_ATS_DOMAINS = ("myworkdayjobs.com", "successfactors.com", "icims.com", "taleo.net")
+# Some sites' location-filter links get caught by JOB_LINK_HINT (href
+# under /careers/) with nothing job-title-like about the anchor text
+# itself — e.g. "Southampton, UK", "West Coast, United States".
+LOCATION_LIKE_TITLE = re.compile(r"^[A-Za-z .'-]+,\s*(UK|USA|US|United States|United Kingdom|[A-Z]{2})$")
 MIN_TITLE_WORDS = 2
 MAX_TITLE_WORDS = 12
 COMMON_CAREERS_PATHS = ("/careers", "/jobs", "/careers/", "/join-us", "/company/careers", "/about/careers", "/about-us/careers")
@@ -59,6 +87,9 @@ def discover_careers_url(website: str) -> str | None:
 
 
 def fetch(careers_url: str) -> list[RawJob]:
+    if any(domain in careers_url for domain in JS_RENDERED_ATS_DOMAINS):
+        return []
+
     html = get_html(careers_url)
     if not html:
         return []
@@ -72,10 +103,12 @@ def fetch(careers_url: str) -> list[RawJob]:
         word_count = len(text.split())
         if not (MIN_TITLE_WORDS <= word_count <= MAX_TITLE_WORDS):
             continue
-        if NAV_TEXT.match(text):
+        if NAV_TEXT.match(text) or NON_JOB_LINK_TEXT.match(text) or LOCATION_LIKE_TITLE.match(text):
             continue
 
         href = anchor["href"]
+        if any(domain in href for domain in JS_RENDERED_ATS_DOMAINS):
+            continue
         looks_like_job = bool(JOB_LINK_HINT.search(href)) or bool(JOB_LINK_HINT.search(text))
         if not looks_like_job:
             continue
