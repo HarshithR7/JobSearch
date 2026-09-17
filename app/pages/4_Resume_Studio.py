@@ -64,3 +64,40 @@ if st.session_state.get("last_tailored_text"):
         file_name=f"{profile.name.replace(' ', '_')}_tailored_resume.docx",
         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
+
+st.divider()
+st.subheader("📚 Past tailored resumes")
+st.caption("Every generated version is saved permanently (resume_version table) — "
+           "this is the only place to see one again after you leave this page.")
+
+with get_session() as db:
+    versions = list(
+        db.query(ResumeVersion)
+        .filter(ResumeVersion.profile_id == profile.id)
+        .order_by(ResumeVersion.created_at.desc())
+        .all()
+    )
+    version_postings = {}
+    if versions:
+        posting_ids = {v.job_posting_id for v in versions if v.job_posting_id}
+        for p in db.query(JobPosting).filter(JobPosting.id.in_(posting_ids)).all():
+            company = db.get(Company, p.company_id)
+            version_postings[p.id] = (p, company)
+
+if not versions:
+    st.caption("None yet — generate one above.")
+else:
+    for v in versions:
+        posting, company = version_postings.get(v.job_posting_id, (None, None))
+        label = f"id {v.id} — {v.created_at.strftime('%Y-%m-%d %H:%M UTC')}"
+        if posting:
+            label += f" — {posting.title} @ {company.name if company else '?'}"
+        with st.expander(label):
+            st.text_area("Text", v.generated_text, height=250, key=f"past_resume_{v.id}", label_visibility="collapsed")
+            st.download_button(
+                "Download as .txt",
+                data=v.generated_text,
+                file_name=f"{profile.name.replace(' ', '_')}_resume_v{v.id}.txt",
+                mime="text/plain",
+                key=f"download_past_{v.id}",
+            )
