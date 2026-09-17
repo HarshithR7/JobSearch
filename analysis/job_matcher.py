@@ -157,3 +157,82 @@ def score_job_free(resume_structured: dict, job_title: str, job_description: str
         "missing_skills": missing,
         "rationale": rationale,
     }
+
+
+# --- Work authorization screening (free, regex-based) ---------------------
+# Deliberately kept separate from the match score, not folded into it: a
+# 94%-technical-match job with a citizenship requirement isn't a 94% job for
+# someone who needs sponsorship, it's a job they may not be able to take at
+# all. These are text-pattern hits against the posting only — a screening
+# signal to read and verify, not a legal determination. Absence of a hit
+# means "not mentioned in this posting," never "confirmed fine."
+
+CITIZENSHIP_PATTERNS = [
+    r"must be a u\.?s\.?\s*citizen",
+    r"u\.?s\.?\s*citizenship required",
+    r"u\.?s\.?\s*citizens? only",
+    r"citizens? of the united states",
+    r"permanent resident(?:s)? (?:or u\.?s\.?\s*citizen|required)",
+    r"green card holder",
+    r"\bu\.?s\.?\s*person\b",
+]
+
+CLEARANCE_PATTERNS = [
+    r"security clearance",
+    r"secret clearance",
+    r"top secret",
+    r"active clearance",
+    r"ability to obtain (?:a |an )?(?:security )?clearance",
+    r"\bitar\b",
+    r"\bear\b",
+    r"export control",
+    r"special access program",
+]
+
+NO_SPONSORSHIP_PATTERNS = [
+    # sponsor(?:ship)? (not just "sponsorship") to also catch "unable to
+    # sponsor or take over sponsorship of employment visas" — real phrasing
+    # seen in live postings, where "sponsor" (no suffix) is the first hit.
+    r"\b(?:no|not able to|unable to|cannot|will not|does not) (?:provide |offer |take over )?(?:visa )?sponsor(?:ship)?\b",
+    r"\bsponsorship (?:is )?not available\b",
+    r"\bwithout (?:the need for )?(?:visa )?sponsorship\b",
+    r"\bdoes not sponsor\b",
+]
+
+SPONSORSHIP_POSITIVE_PATTERNS = [
+    # \b before the alternation is load-bearing: without it, "unable to
+    # sponsor" matches as a bare substring on "able to sponsor" inside
+    # "un[able to sponsor]" — exactly backwards (a no-sponsorship posting
+    # reads as sponsorship-available). Caught by testing against real
+    # postings, not by inspection.
+    r"\b(?:will|able to|can) sponsor\b",
+    r"\bvisa sponsorship (?:available|provided|offered)\b",
+    r"\bh-?1b sponsorship\b",
+    r"\bsponsorship (?:is )?available\b",
+]
+
+
+def _pattern_hits(patterns: list[str], text: str) -> list[str]:
+    hits = []
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            hits.append(match.group(0))
+    return hits
+
+
+def detect_work_auth_flags(job_title: str, job_description: str) -> dict:
+    """Screening signal only, from posting text — not a legal determination.
+    Zero cost, no API calls."""
+    text = _clean_text(f"{job_title} {job_description}")
+    citizenship_hits = _pattern_hits(CITIZENSHIP_PATTERNS, text)
+    clearance_hits = _pattern_hits(CLEARANCE_PATTERNS, text)
+    no_sponsorship_hits = _pattern_hits(NO_SPONSORSHIP_PATTERNS, text)
+    sponsorship_hits = _pattern_hits(SPONSORSHIP_POSITIVE_PATTERNS, text)
+    return {
+        "citizenship_required": bool(citizenship_hits),
+        "clearance_required": bool(clearance_hits),
+        "no_sponsorship": bool(no_sponsorship_hits),
+        "sponsorship_mentioned": bool(sponsorship_hits),
+        "matched_phrases": citizenship_hits + clearance_hits + no_sponsorship_hits + sponsorship_hits,
+    }

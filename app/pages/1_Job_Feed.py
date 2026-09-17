@@ -10,6 +10,12 @@ from database.models import JobPosting, Company
 from database.repositories import match_repo, application_repo
 from analysis import gap_advisor
 from analysis.ai_client import AIUnavailableError
+from analysis.job_matcher import detect_work_auth_flags
+
+# Free-text visa_status values that mean "does not need employer
+# sponsorship" — anything else (F1, OPT, STEM OPT, H-1B, blank, ...) is
+# treated as sponsorship-relevant for the no-sponsorship warning below.
+NO_SPONSORSHIP_NEEDED_STATUSES = {"us citizen", "citizen", "green card", "permanent resident", "pr", "gc"}
 
 st.set_page_config(page_title="Job Feed", page_icon="🔥", layout="wide")
 st.title("🔥 Job Feed")
@@ -76,22 +82,39 @@ with st.container(border=True):
 st.divider()
 st.subheader("All scored jobs")
 
+needs_sponsorship = (profile.visa_status or "").strip().lower() not in NO_SPONSORSHIP_NEEDED_STATUSES
+if not profile.visa_status:
+    needs_sponsorship = None  # unknown — don't assume either way
+
 tech_options = sorted({r["company"].technology_tag for r in rows if r["company"] and r["company"].technology_tag})
-col_a, col_b, col_c = st.columns(3)
+col_a, col_b, col_c, col_d = st.columns(4)
 tech_filter = col_a.multiselect("Technology", tech_options)
 remote_only = col_b.checkbox("Remote only")
 min_score = col_c.slider("Minimum match score", 0, 100, 60)
+hide_barriers = col_d.checkbox(
+    "Hide detected work-auth barriers",
+    help="Hides postings with citizenship/clearance requirements or explicit "
+         "no-sponsorship language detected in the text. Screening signal only "
+         "— verify independently before ruling a job out.",
+)
+
+for r in rows:
+    r["work_auth"] = detect_work_auth_flags(r["posting"].title, r["posting"].raw_description or "")
 
 filtered = [
     r for r in rows
     if r["match"].overall_score >= min_score
     and (not remote_only or r["posting"].remote_flag)
     and (not tech_filter or (r["company"] and r["company"].technology_tag in tech_filter))
+    and (not hide_barriers or not (r["work_auth"]["citizenship_required"] or r["work_auth"]["clearance_required"]
+                                    or (r["work_auth"]["no_sponsorship"] and needs_sponsorship)))
 ]
 
 for r in filtered:
-    posting, company, match = r["posting"], r["company"], r["match"]
-    header = f"{match.overall_score}/100 · {BAND_LABEL.get(match.band, match.band)} — {posting.title} @ {company.name if company else '?'}"
+    posting, company, match, work_auth = r["posting"], r["company"], r["match"], r["work_auth"]
+    barrier = work_auth["citizenship_required"] or work_auth["clearance_required"] or (work_auth["no_sponsorship"] and needs_sponsorship)
+    visa_icon = " 🚫" if barrier else (" 🟢" if work_auth["sponsorship_mentioned"] else "")
+    header = f"{match.overall_score}/100 · {BAND_LABEL.get(match.band, match.band)}{visa_icon} — {posting.title} @ {company.name if company else '?'}"
     with st.expander(header):
         st.write(f"Location: {posting.location or '—'} | Remote: {posting.remote_flag or False} | Source: {posting.source}")
         st.write(f"First seen: {posting.first_seen_at.date()}")
@@ -101,6 +124,22 @@ for r in filtered:
             st.markdown("✓ " + ", ".join(match.matched_skills))
         if match.missing_skills:
             st.markdown("⚠ Missing: " + ", ".join(match.missing_skills))
+
+        st.markdown("**🪪 Work authorization** — from posting text only, screening signal, verify independently")
+        if work_auth["citizenship_required"] or work_auth["clearance_required"]:
+            st.error("⚠️ Possible barrier: " + ", ".join(work_auth["matched_phrases"][:4]))
+        elif work_auth["no_sponsorship"] and needs_sponsorship:
+            st.error(f"⚠️ Posting says no visa sponsorship (matched: \"{work_auth['matched_phrases'][0]}\") "
+                     f"— you're on \"{profile.visa_status}\"")
+        elif work_auth["no_sponsorship"]:
+            st.caption(f"Posting mentions no sponsorship (matched: \"{work_auth['matched_phrases'][0]}\")")
+        elif work_auth["sponsorship_mentioned"]:
+            st.success(f"✓ Mentions visa sponsorship (matched: \"{work_auth['matched_phrases'][0]}\")")
+        else:
+            st.caption("No citizenship/clearance/sponsorship language detected in this posting.")
+        if company and company.visa_sponsor_known:
+            st.caption("🟢 This company has H-1B LCA filing history on record (historical evidence, not a guarantee for this specific role).")
+
         col1, col2 = st.columns(2)
         col1.link_button("View posting", posting.url)
         if col2.button("Mark Interested", key=f"interested_{posting.id}"):
