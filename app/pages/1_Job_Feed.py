@@ -305,9 +305,25 @@ with tab_recommended:
         and (not search_lower or search_lower in r["posting"].title.lower()
              or (r["company"] and search_lower in r["company"].name.lower()))
     ]
-    st.caption(f"{len(filtered)} of {len(rows)} scored jobs shown")
-    for r in filtered:
+    st.caption(f"{len(filtered)} of {len(rows)} scored jobs match your filters")
+
+    # Paginated rather than rendering the whole filtered list at once —
+    # even after the N+1 query fix, a few thousand full interactive cards
+    # (SVG ring + badges + buttons + checkbox each) is real client-side
+    # rendering weight for a browser, separate from server-side query time.
+    PAGE_SIZE = 50
+    if "jf_visible_count" not in st.session_state:
+        st.session_state["jf_visible_count"] = PAGE_SIZE
+    visible = filtered[: st.session_state["jf_visible_count"]]
+
+    for r in visible:
         _render_job_card(r, needs_sponsorship, key_prefix="rec")
+
+    remaining = len(filtered) - len(visible)
+    if remaining > 0:
+        if st.button(f"Show {min(PAGE_SIZE, remaining)} more ({remaining} remaining)"):
+            st.session_state["jf_visible_count"] += PAGE_SIZE
+            st.rerun()
 
 with tab_liked:
     if not liked:
