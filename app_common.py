@@ -19,8 +19,8 @@ _APPLE_THEME_CSS = """
     --apple-card: #ffffff;
     --apple-text: #1d1d1f;
     --apple-text-secondary: #6e6e73;
-    --apple-blue: #0071e3;
-    --apple-blue-hover: #0077ed;
+    --apple-accent: #16a34a;
+    --apple-accent-hover: #15803d;
     --apple-radius: 18px;
     --apple-shadow: 0 2px 10px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.05);
 }
@@ -65,11 +65,11 @@ p, .stMarkdown, .stCaption { color: var(--apple-text); }
     transform: scale(1.03);
 }
 .stFormSubmitButton > button, .stButton > button[kind="primary"] {
-    background: var(--apple-blue) !important;
+    background: var(--apple-accent) !important;
     color: white !important;
 }
 .stFormSubmitButton > button:hover, .stButton > button[kind="primary"]:hover {
-    background: var(--apple-blue-hover) !important;
+    background: var(--apple-accent-hover) !important;
 }
 
 /* Tabs styled as an iOS segmented control */

@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, timezone
 import anthropic
 import streamlit as st
 
+from sqlalchemy import select
+
 from app_common import inject_apple_theme, select_profile
 from database.session import get_session
 from database.models import JobPosting, Company
@@ -186,24 +188,50 @@ def _render_job_card(r: dict, needs_sponsorship: bool | None, status_badge: str 
 
 
 with get_session() as db:
-    matches = match_repo.top_for_profile(db, profile.id, limit=300)
+    # No practical cap — every live posting is already scored (the free
+    # engine scores all of them), and a low default "Minimum match score"
+    # filter below does the real work of keeping the rendered list small.
+    # A hardcoded limit=300 here was hiding postings ranked below #300 even
+    # when a user dropped that filter to see more (real report: "where are
+    # the other 3000 jobs" — all of them were scored, just never fetched).
+    matches = match_repo.top_for_profile(db, profile.id, limit=10_000)
+
+    # Bulk-fetch postings/companies instead of one db.get() per match — the
+    # per-row loop this replaced was up to 2*len(matches) individual round
+    # trips to a remote Postgres instance, which measured at 88 seconds for
+    # 3,358 matches (vs 9.6s for everything else on this page combined).
+    posting_ids = [m.job_posting_id for m in matches]
+    postings_by_id = {p.id: p for p in db.scalars(select(JobPosting).where(JobPosting.id.in_(posting_ids)))}
+    company_ids = {p.company_id for p in postings_by_id.values()}
+    companies_by_id = {c.id: c for c in db.scalars(select(Company).where(Company.id.in_(company_ids)))}
+    matches_by_posting_id = {m.job_posting_id: m for m in matches}
+
     rows = []
     for m in matches:
-        posting = db.get(JobPosting, m.job_posting_id)
+        posting = postings_by_id.get(m.job_posting_id)
         if posting is None or posting.status != "live":
             continue
-        company = db.get(Company, posting.company_id)
-        rows.append({"match": m, "posting": posting, "company": company})
+        rows.append({"match": m, "posting": posting, "company": companies_by_id.get(posting.company_id)})
 
     applications = application_repo.list_for_profile(db, profile.id)
+    app_posting_ids = [a.job_posting_id for a in applications if a.job_posting_id not in postings_by_id]
+    if app_posting_ids:
+        for p in db.scalars(select(JobPosting).where(JobPosting.id.in_(app_posting_ids))):
+            postings_by_id[p.id] = p
+        missing_company_ids = {p.company_id for p in postings_by_id.values()} - companies_by_id.keys()
+        if missing_company_ids:
+            for c in db.scalars(select(Company).where(Company.id.in_(missing_company_ids))):
+                companies_by_id[c.id] = c
+
     app_rows = []
     for a in applications:
-        posting = db.get(JobPosting, a.job_posting_id)
+        posting = postings_by_id.get(a.job_posting_id)
         if posting is None:
             continue
-        company = db.get(Company, posting.company_id)
-        match = next((m for m in matches if m.job_posting_id == posting.id), None)
-        app_rows.append({"application": a, "posting": posting, "company": company, "match": match})
+        app_rows.append({
+            "application": a, "posting": posting, "company": companies_by_id.get(posting.company_id),
+            "match": matches_by_posting_id.get(posting.id),
+        })
 
 if not rows:
     st.info("No scored jobs yet. Run `python main.py scan-jobs` then `python main.py match-jobs --profile "
@@ -244,26 +272,26 @@ tab_recommended, tab_liked, tab_applied, tab_external = st.tabs([
 ])
 
 with tab_recommended:
-    st.caption("🟢 skill you have · 🟡 skill gap · 🔴 possible work-auth barrier — colors are consistent everywhere on this page")
+    st.caption(f"🟢 skill you have · 🟡 skill gap · 🔴 possible work-auth barrier — "
+               f"all {len(rows)} live postings are scored below, filters control what's shown")
     search = st.text_input("🔍 Search by title or company", key="jf_search")
+
     tech_options = sorted({r["company"].technology_tag for r in rows if r["company"] and r["company"].technology_tag})
-    col_a, col_b, col_c, col_d = st.columns(4)
-    tech_filter = col_a.multiselect("Technology", tech_options)
-    remote_only = col_b.checkbox("Remote only")
-    min_score = col_c.slider("Minimum match score", 0, 100, 60)
-    hide_barriers = col_d.checkbox(
-        "Hide detected work-auth barriers",
-        help="Hides postings with citizenship/clearance requirements or explicit "
-             "no-sponsorship language detected in the text. Screening signal only "
-             "— verify independently before ruling a job out.",
+    tech_filter = st.multiselect("Technology", tech_options)
+    min_score = st.slider("Minimum match score", 0, 100, 60)
+
+    quick_filters = st.pills(
+        "Quick filters",
+        ["Remote only", "Hide work-auth barriers", "US jobs only"],
+        selection_mode="multi",
+        help="\"Hide work-auth barriers\" hides postings with detected citizenship/clearance "
+             "requirements or explicit no-sponsorship language — screening signal only, verify "
+             "independently. \"US jobs only\" hides postings with a known non-US location signal; "
+             "postings with no location text, or no signal either way, are kept by default.",
     )
-    us_only = st.checkbox(
-        "US jobs only",
-        help="Hides postings whose location text matches a known non-US signal "
-             "(country/city name). Postings with no location text, or no signal "
-             "either way, are kept by default — this isn't a confirmed-US filter, "
-             "just a best-effort exclusion of clearly non-US postings.",
-    )
+    remote_only = "Remote only" in quick_filters
+    hide_barriers = "Hide work-auth barriers" in quick_filters
+    us_only = "US jobs only" in quick_filters
 
     search_lower = search.strip().lower()
     filtered = [
