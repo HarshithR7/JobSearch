@@ -7,6 +7,7 @@ jobs and profiles (see plan: "Job Match Score" rubric)."""
 
 import html
 import re
+from datetime import datetime
 
 from analysis.ai_client import complete_json
 from config import settings
@@ -165,6 +166,26 @@ def _resume_text(resume_structured: dict) -> str:
 
 MIN_REQUIRED_KEYWORDS = 3  # below this, len(matched)/len(job_required) is noise, not a score
 
+_EXPERIENCE_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+_PRESENT_RE = re.compile(r"\bpresent\b|\bcurrent\b|\bnow\b", re.IGNORECASE)
+
+
+def estimate_years_experience(resume_structured: dict) -> int | None:
+    """Rough career-span estimate (earliest year to latest year across all
+    experience.dates fields) — not a precise total-months calculation,
+    since free-text date formats vary too much to parse exactly. Only
+    feeds a bounded penalty below, never a hard cutoff, so an imperfect
+    estimate discounts a score rather than zeroing it out."""
+    years = []
+    for exp in resume_structured.get("experience", []) or []:
+        dates_text = exp.get("dates", "") or ""
+        years.extend(int(y) for y in _EXPERIENCE_YEAR_RE.findall(dates_text))
+        if _PRESENT_RE.search(dates_text):
+            years.append(datetime.now().year)
+    if not years:
+        return None
+    return max(0, max(years) - min(years))
+
 
 def score_job_free(resume_structured: dict, job_title: str, job_description: str, company_context: str = "") -> dict:
     """Zero-cost alternative to score_job() — no Claude call. Scores how many
@@ -209,10 +230,40 @@ def score_job_free(resume_structured: dict, job_title: str, job_description: str
         overall = 50
         rationale = "No recognized skill keywords found in this posting — score defaults to neutral."
 
+    # Experience-gap penalty: keyword overlap alone doesn't catch "10+ years
+    # of semiconductor experience" on a posting that also happens to share
+    # 5/6 recognized skill keywords with the resume (real case: scored 83%
+    # with zero awareness of the years requirement). -8 points per year
+    # short, capped at -50 — bounded because estimate_years_experience() is
+    # a rough parse of free-text resume dates, not exact; this discounts a
+    # likely-severe mismatch, it doesn't zero the job out on an estimate
+    # that could be off by a year or two.
+    #
+    # Only applied when len(job_required) >= MIN_REQUIRED_KEYWORDS, i.e. we
+    # already have a real ratio-based score — applying it to the "too few
+    # keywords" neutral-50 fallback compounds two different uncertainties
+    # into false confidence (caught in testing: Etched's Mechanical Engineer
+    # posting, 1 recognized keyword, went from an honest "not enough
+    # signal" 50 to a falsely confident 0 once the penalty stacked on top).
+    keyword_score = overall
+    experience_penalty = 0
+    if len(job_required) >= MIN_REQUIRED_KEYWORDS:
+        experience = detect_experience_signal(job_title, job_description)
+        candidate_years = estimate_years_experience(resume_structured)
+        required_years = experience.get("min_years_required")
+        if required_years and candidate_years is not None and candidate_years < required_years:
+            gap = required_years - candidate_years
+            experience_penalty = min(50, gap * 8)
+            overall -= experience_penalty
+            rationale += (
+                f" Adjusted -{experience_penalty} for an estimated experience gap "
+                f"(~{candidate_years}y in your resume vs {required_years}+y required)."
+            )
+
     overall = max(0, min(100, overall))
     return {
         "overall_score": overall,
-        "sub_scores": {"keyword_overlap": overall},
+        "sub_scores": {"keyword_overlap": keyword_score, "experience_penalty": experience_penalty},
         "band": band_for(overall),
         "matched_skills": matched,
         "missing_skills": missing,
@@ -300,17 +351,19 @@ def detect_work_auth_flags(job_title: str, job_description: str) -> dict:
 
 
 # --- Experience-level screening (free, regex-based) ------------------------
-# score_job_free() only checks technical-keyword overlap — it has no concept
+# score_job_free() only checked technical-keyword overlap — it had no concept
 # of seniority or years-of-experience at all, so a posting requiring "8+
-# years" for a "Sr. Staff" role can still hit 100% on 3/3 keyword matches.
-# Rather than guess at the candidate's own years from messy free-text resume
-# dates (fragile, easy to get wrong in a way that's hard to notice), this
-# only surfaces what the POSTING asks for, as a visible flag alongside the
-# score — same "separate signal, not a score adjustment" principle as
-# detect_work_auth_flags.
-
+# years" for a "Sr. Staff" role could hit 100% on 3/3 keyword matches. Used
+# for both a UI badge (detect_experience_signal alone) and a bounded penalty
+# inside score_job_free (see estimate_years_experience + the penalty there).
+#
+# 0-3 filler words allowed between "of" and "experience" — "10+ years of
+# semiconductor experience" was missed by an earlier version of this regex
+# that only allowed a fixed relevant/professional/related qualifier; caught
+# on a real posting (Tenstorrent TPM) where the years requirement went
+# completely undetected as a result.
 YEARS_REQUIRED_RE = re.compile(
-    r"(\d{1,2})\s*\+?\s*(?:-\s*\d{1,2}\s*)?years?\s+(?:of\s+)?(?:relevant\s+|professional\s+|related\s+)?experience",
+    r"(\d{1,2})\s*\+?\s*(?:-\s*\d{1,2}\s*)?years?\s+(?:of\s+)?(?:[a-zA-Z/-]+\s+){0,3}experience",
     re.IGNORECASE,
 )
 
