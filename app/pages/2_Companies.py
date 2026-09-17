@@ -19,6 +19,13 @@ if not companies:
     st.info("No companies yet. Run `python -m scripts.seed_companies` to import your spreadsheet.")
     st.stop()
 
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Total companies", len(companies))
+c2.metric("With known ATS", sum(1 for c in companies if c.ats_type not in ("unknown", "none")))
+c3.metric("Needs review", sum(1 for c in companies if c.needs_review))
+c4.metric("H-1B history on record", sum(1 for c in companies if c.visa_sponsor_known))
+st.write("")
+
 tiers = sorted({c.priority_tier for c in companies if c.priority_tier})
 techs = sorted({c.technology_tag for c in companies if c.technology_tag})
 
