@@ -147,8 +147,11 @@ def _render_job_card(r: dict, needs_sponsorship: bool | None, status_badge: str 
                 top_pills.append(f'<span class="jc-pill jc-pill-blue">{rel}</span>')
             if posting.source in EXTERNAL_SOURCES:
                 top_pills.append(f'<span class="jc-pill jc-pill-gray">via {posting.source}</span>')
-            if is_likely_us_posting(posting.location) is False:
+            us_signal = is_likely_us_posting(posting.location)
+            if us_signal is False:
                 top_pills.append('<span class="jc-pill jc-pill-gray">🌍 Non-US</span>')
+            elif us_signal is None:
+                top_pills.append('<span class="jc-pill jc-pill-gray">❔ Location unknown</span>')
             if status_badge:
                 top_pills.append(f'<span class="jc-pill jc-pill-gray">{status_badge}</span>')
             st.markdown("".join(top_pills), unsafe_allow_html=True)
@@ -280,14 +283,23 @@ with tab_recommended:
     tech_filter = st.multiselect("Technology", tech_options)
     min_score = st.slider("Minimum match score", 0, 100, 60)
 
+    # Defaults to ON when the profile clearly needs sponsorship (visa_status
+    # set and not a citizen/green-card equivalent) — repeated real feedback
+    # was that non-US postings kept showing up because this was opt-in and
+    # easy to forget to click, even though the backend was already
+    # correctly flagging them (verified directly: a Bengaluru posting's
+    # location string does trip is_likely_us_posting() -> False).
+    default_quick_filters = ["US jobs only"] if needs_sponsorship else []
     quick_filters = st.pills(
         "Quick filters",
         ["Remote only", "Hide work-auth barriers", "US jobs only"],
         selection_mode="multi",
+        default=default_quick_filters,
         help="\"Hide work-auth barriers\" hides postings with detected citizenship/clearance "
              "requirements or explicit no-sponsorship language — screening signal only, verify "
              "independently. \"US jobs only\" hides postings with a known non-US location signal; "
-             "postings with no location text, or no signal either way, are kept by default.",
+             "postings with no location text, or no signal either way, are kept by default. "
+             "On by default since your profile's visa status implies you need a US employer.",
     )
     remote_only = "Remote only" in quick_filters
     hide_barriers = "Hide work-auth barriers" in quick_filters
@@ -301,7 +313,11 @@ with tab_recommended:
         and (not tech_filter or (r["company"] and r["company"].technology_tag in tech_filter))
         and (not hide_barriers or not (r["work_auth"]["citizenship_required"] or r["work_auth"]["clearance_required"]
                                         or (r["work_auth"]["no_sponsorship"] and needs_sponsorship)))
-        and (not us_only or is_likely_us_posting(r["posting"].location) is not False)
+        # Strict (is True, not "is not False") when explicitly toggled on —
+        # 57% of top-scored matches turned out to have no location data at
+        # all (the generic-careers-page collector never extracts one), and
+        # "US jobs only" should mean confirmed US, not "US or unverifiable."
+        and (not us_only or is_likely_us_posting(r["posting"].location) is True)
         and (not search_lower or search_lower in r["posting"].title.lower()
              or (r["company"] and search_lower in r["company"].name.lower()))
     ]
