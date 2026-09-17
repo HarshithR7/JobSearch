@@ -92,20 +92,42 @@ def score_job(resume_structured: dict, job_title: str, job_description: str, com
 FREE_SKILL_VOCAB = [
     # Languages
     "Python", "Java", "C++", "C#", "JavaScript", "TypeScript", "Go", "Rust", "Scala", "Kotlin",
-    "Swift", "Ruby", "PHP", "SQL", "Verilog", "VHDL", "SystemVerilog", "MATLAB", "Bash",
+    "Swift", "Ruby", "PHP", "SQL", "Verilog", "VHDL", "SystemVerilog", "MATLAB", "Bash", "Perl",
+    "Julia", "Assembly", "TCL", "Groovy", "Objective-C", "Solidity", "Simulink",
     # Web / backend
     "React", "Angular", "Vue", "Node.js", "Django", "Flask", "FastAPI", "Spring", "GraphQL",
-    "REST", "gRPC", "Microservices",
+    "REST", "gRPC", "Microservices", "Express", "Next.js", "Ruby on Rails", "ASP.NET", ".NET",
     # Data / ML
     "TensorFlow", "PyTorch", "scikit-learn", "Pandas", "NumPy", "Spark", "Hadoop", "Kafka",
-    "Airflow", "NoSQL", "MongoDB", "PostgreSQL", "MySQL", "Redis", "Elasticsearch",
+    "Airflow", "NoSQL", "MongoDB", "PostgreSQL", "MySQL", "Redis", "Elasticsearch", "Keras",
+    "JAX", "Hugging Face", "LangChain", "XGBoost", "OpenCV", "NLTK", "spaCy", "Databricks",
+    "Snowflake", "dbt", "Tableau", "Power BI", "Looker", "Machine Learning", "Deep Learning",
+    "Computer Vision", "NLP", "LLM", "Reinforcement Learning",
     # Cloud / infra
     "AWS", "Azure", "GCP", "Kubernetes", "Docker", "Terraform", "Jenkins", "CI/CD", "Linux", "Git",
-    # Hardware / EE
+    "Ansible", "Puppet", "Chef", "Helm", "Istio", "Prometheus", "Grafana", "Nginx", "CloudFormation",
+    "Serverless", "Lambda", "SRE", "DevOps",
+    # Hardware / EE — chip design, verification, physical design
     "RISC-V", "ARM", "ASIC", "FPGA", "RTL", "UVM", "DFT", "Synthesis", "Place and Route",
-    "Timing Closure", "PCIe", "DDR", "SoC", "Embedded Systems", "Firmware",
+    "Timing Closure", "PCIe", "DDR", "LPDDR", "HBM", "SoC", "Embedded Systems", "Firmware",
+    "Cadence", "Synopsys", "Mentor Graphics", "Xilinx", "Vivado", "Quartus", "ModelSim", "VCS",
+    "Questa", "SPICE", "HSPICE", "Virtuoso", "Innovus", "Genus", "ICC2", "PrimeTime",
+    "Static Timing Analysis", "STA", "DRC", "LVS", "Tapeout", "GDSII", "Floorplanning",
+    "Clock Tree Synthesis", "JTAG", "Scan Chain", "ATPG", "BIST", "Formal Verification",
+    "SVA", "Constrained Random", "Coverage-Driven Verification", "AXI", "AHB", "APB", "I2C",
+    "SPI", "UART", "Ethernet", "USB", "HDMI", "MIPI", "NoC", "Microarchitecture", "Pipeline",
+    "Out-of-Order", "Superscalar", "Branch Prediction", "Cache Coherence", "MESI",
+    "Memory Controller", "DMA", "Power Management", "Low Power Design", "UPF", "Clock Gating",
+    "Signal Integrity", "Analog Design", "Mixed Signal", "PLL", "ADC", "DAC", "RF Design",
+    "Photonics", "Quantum Computing", "CMOS", "FinFET", "GaN", "SiC", "Yield Analysis", "Wafer",
+    "Foundry", "Process Node", "Lithography",
+    # Testing / QA
+    "Selenium", "Cypress", "Jest", "PyTest", "JUnit", "TestNG", "Postman", "Load Testing",
+    # Databases
+    "Oracle", "Cassandra", "DynamoDB", "MariaDB",
     # General / process
-    "Agile", "Scrum", "Project Management", "Leadership",
+    "Agile", "Scrum", "Kanban", "Waterfall", "Six Sigma", "Lean", "SAFe", "TDD", "Project Management",
+    "Leadership", "Mentoring", "Stakeholder Management", "Technical Writing", "PMP",
 ]
 
 _TAG_RE = re.compile(r"<[^>]+>")
