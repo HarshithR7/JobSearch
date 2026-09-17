@@ -107,6 +107,13 @@ def _clean_text(text: str) -> str:
     return _TAG_RE.sub(" ", html.unescape(text or ""))
 
 
+def strip_html(text: str) -> str:
+    """Public wrapper for _clean_text — used by the UI to render a raw
+    posting description (some ATS sources, e.g. Greenhouse, store it as
+    HTML-escaped markup) without pulling in a full HTML-to-text library."""
+    return _clean_text(text)
+
+
 def _contains_term(term: str, haystack: str) -> bool:
     pattern = r"(?<![A-Za-z0-9])" + re.escape(term) + r"(?![A-Za-z0-9])"
     return re.search(pattern, haystack, re.IGNORECASE) is not None
@@ -126,23 +133,47 @@ def _resume_text(resume_structured: dict) -> str:
     return " ".join(parts)
 
 
+MIN_REQUIRED_KEYWORDS = 3  # below this, len(matched)/len(job_required) is noise, not a score
+
+
 def score_job_free(resume_structured: dict, job_title: str, job_description: str, company_context: str = "") -> dict:
     """Zero-cost alternative to score_job() — no Claude call. Scores how many
     recognized skill keywords in the job posting also show up somewhere in
-    the resume. Vocabulary-limited: a posting with no recognized keywords
-    gets a neutral 50 rather than a real 0-100 judgment."""
-    job_text = _clean_text(f"{job_title} {job_description} {company_context}")
+    the resume.
+
+    company_context is accepted for interface parity with score_job() but
+    deliberately NOT included in the text scanned for required keywords:
+    it's the company's one-line description, not this job's requirements,
+    and blending it in caused a real bug — a company description reading
+    "transformers on ASIC" made every job at that company (including a
+    Mechanical Engineer posting) inherit "ASIC" as a "required" skill,
+    scoring 100% off a single spurious match. Found by a user reporting a
+    100/100 "Apply Today" score on a job with almost nothing in common
+    with their resume.
+
+    That also exposed a second issue: with very few recognized keywords,
+    matched/required is a tiny-sample ratio that saturates to 0 or 100 on
+    one lucky or unlucky hit (55% of a 1000-posting sample had 0-2
+    recognized keywords). Below MIN_REQUIRED_KEYWORDS, this returns a
+    neutral 50 instead of a falsely confident extreme."""
+    job_text = _clean_text(f"{job_title} {job_description}")
     resume_text = _resume_text(resume_structured)
 
     job_required = [kw for kw in FREE_SKILL_VOCAB if _contains_term(kw, job_text)]
     matched = [kw for kw in job_required if _contains_term(kw, resume_text)]
     missing = [kw for kw in job_required if kw not in matched]
 
-    if job_required:
+    if len(job_required) >= MIN_REQUIRED_KEYWORDS:
         overall = round(100 * len(matched) / len(job_required))
         rationale = (
             f"Free keyword match: {len(matched)}/{len(job_required)} recognized skill "
             f"keywords in this posting also appear in your resume."
+        )
+    elif job_required:
+        overall = 50
+        rationale = (
+            f"Only {len(job_required)} recognized skill keyword(s) found in this posting "
+            f"— too few for a reliable score, defaulting to neutral."
         )
     else:
         overall = 50

@@ -10,7 +10,7 @@ from database.models import JobPosting, Company
 from database.repositories import match_repo, application_repo
 from analysis import gap_advisor
 from analysis.ai_client import AIUnavailableError
-from analysis.job_matcher import detect_work_auth_flags
+from analysis.job_matcher import detect_work_auth_flags, strip_html
 
 # Free-text visa_status values that mean "does not need employer
 # sponsorship" — anything else (F1, OPT, STEM OPT, H-1B, blank, ...) is
@@ -117,13 +117,21 @@ for r in filtered:
     header = f"{match.overall_score}/100 · {BAND_LABEL.get(match.band, match.band)}{visa_icon} — {posting.title} @ {company.name if company else '?'}"
     with st.expander(header):
         st.write(f"Location: {posting.location or '—'} | Remote: {posting.remote_flag or False} | Source: {posting.source}")
-        st.write(f"First seen: {posting.first_seen_at.date()}")
+        if posting.posted_at:
+            st.write(f"Posted: {posting.posted_at.date()}")
+        else:
+            st.write(f"Posted date not provided by this source — first seen by our scanner: {posting.first_seen_at.date()}")
+
+        st.markdown("**🎯 Match**")
         if match.rationale:
             st.write(match.rationale)
         if match.matched_skills:
             st.markdown("✓ " + ", ".join(match.matched_skills))
         if match.missing_skills:
             st.markdown("⚠ Missing: " + ", ".join(match.missing_skills))
+
+        if posting.raw_description and st.checkbox("Show full job description", key=f"show_desc_{posting.id}"):
+            st.write(strip_html(posting.raw_description))
 
         st.markdown("**🪪 Work authorization** — from posting text only, screening signal, verify independently")
         if work_auth["citizenship_required"] or work_auth["clearance_required"]:
