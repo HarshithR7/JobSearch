@@ -40,4 +40,24 @@ class Settings(BaseSettings):
     GITHUB_USERNAME: str = "HarshithR7"
 
 
-settings = Settings()
+def _streamlit_secrets() -> dict:
+    """Streamlit Community Cloud secrets go into st.secrets — whether
+    they're also reliably injected into os.environ (which BaseSettings
+    reads by default, same as the local .env file) shouldn't be assumed
+    without verifying for the exact deployment context, and a
+    misconfigured/unsaved secret there silently falls back to this
+    class's defaults (DB_HOST="localhost") rather than erroring — that's
+    exactly what caused a real deploy failure: psycopg2 trying to connect
+    to localhost instead of the real Neon DATABASE_URL. Reading st.secrets
+    directly removes the dependency on that assumption entirely. Safe to
+    call outside Streamlit too (CLI/scripts/main.py): importing streamlit
+    doesn't require a running app, and accessing .secrets without a
+    secrets.toml present raises, which the broad except below absorbs."""
+    try:
+        import streamlit as st
+        return dict(st.secrets)
+    except Exception:
+        return {}
+
+
+settings = Settings(**_streamlit_secrets())
