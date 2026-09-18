@@ -305,18 +305,36 @@ with tab_recommended:
     default_quick_filters = ["US jobs only"] if needs_sponsorship else []
     quick_filters = st.pills(
         "Quick filters",
-        ["Remote only", "Hide work-auth barriers", "US jobs only"],
+        ["Remote only", "Hide work-auth barriers", "US jobs only", "Entry-level", "Experienced"],
         selection_mode="multi",
         default=default_quick_filters,
         help="\"Hide work-auth barriers\" hides postings with detected citizenship/clearance "
              "requirements or explicit no-sponsorship language — screening signal only, verify "
              "independently. \"US jobs only\" hides postings with a known non-US location signal; "
              "postings with no location text, or no signal either way, are kept by default. "
-             "On by default since your profile's visa status implies you need a US employer.",
+             "On by default since your profile's visa status implies you need a US employer. "
+             "\"Entry-level\" keeps postings without a senior-sounding title and requiring 3 years "
+             "of experience or less (or no years stated). \"Experienced\" keeps the opposite — "
+             "senior-sounding titles or 4+ years required. Select both to see everything (same as "
+             "neither); across these companies only ~5% of postings are entry-level-titled, so this "
+             "filters the senior-heavy majority out of the way instead of making you scroll past it.",
     )
     remote_only = "Remote only" in quick_filters
     hide_barriers = "Hide work-auth barriers" in quick_filters
     us_only = "US jobs only" in quick_filters
+    entry_level_only = "Entry-level" in quick_filters
+    experienced_only = "Experienced" in quick_filters
+
+    def _is_entry_level(exp: dict) -> bool:
+        if exp.get("senior_title"):
+            return False
+        years = exp.get("min_years_required")
+        return years is None or years <= 3
+
+    sort_by = st.radio(
+        "Sort by", ["Match score (best first)", "Newest first"],
+        horizontal=True, key="jf_sort_by",
+    )
 
     search_lower = search.strip().lower()
     filtered = [
@@ -331,9 +349,19 @@ with tab_recommended:
         # all (the generic-careers-page collector never extracts one), and
         # "US jobs only" should mean confirmed US, not "US or unverifiable."
         and (not us_only or is_likely_us_posting(r["posting"].location) is True)
+        # Only filters when exactly one of the pair is picked — both or
+        # neither selected means "don't care", not "match nothing".
+        and (entry_level_only == experienced_only or _is_entry_level(r["experience"]) == entry_level_only)
         and (not search_lower or search_lower in r["posting"].title.lower()
              or (r["company"] and search_lower in r["company"].name.lower()))
     ]
+
+    if sort_by == "Newest first":
+        filtered.sort(
+            key=lambda r: r["posting"].posted_at or r["posting"].first_seen_at,
+            reverse=True,
+        )
+
     st.caption(f"{len(filtered)} of {len(rows)} scored jobs match your filters")
 
     # Paginated rather than rendering the whole filtered list at once —
