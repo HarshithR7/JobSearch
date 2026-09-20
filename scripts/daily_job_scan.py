@@ -11,7 +11,7 @@ from config import logger
 from database.session import get_session
 from database.models import Company, SourceRunLog
 from database.repositories import company_repo, job_repo, profile_repo
-from collectors import ats_detect, careers_generic, google_search, hn_hiring, linkedin_email_parser, remoteok
+from collectors import ats_detect, careers_generic, google_search, hn_hiring, linkedin_email_parser, remoteok, yc_directory
 from collectors.ats_detect import FETCHERS
 
 
@@ -274,6 +274,32 @@ def _discover_new_companies() -> int:
     return discovered
 
 
+def _discover_via_yc() -> int:
+    """Y Combinator's own company directory (yc_directory.py), filtered to
+    hardware keywords plus every profile's target_tech_tags — same
+    profile-driven extension as _discover_new_companies() above, so a
+    non-hardware profile (e.g. health-IT) also grows real YC startups in
+    its own domain, not just Harshith's. Companies only, no postings (YC
+    doesn't publish those) — get_by_name skips anything already tracked so
+    this never clobbers a company found via another source, and new ones
+    land as needs_review for the existing ATS-detection pass to pick up."""
+    extra = tuple(t.lower() for t in _profile_tech_tags())
+    keywords = yc_directory.HARDWARE_KEYWORDS + extra
+
+    discovered = 0
+    with get_session() as db:
+        for company in yc_directory.fetch_companies(tag_filter=keywords):
+            if company_repo.get_by_name(db, company["name"]) is not None:
+                continue
+            company_repo.upsert(
+                db, name=company["name"], website=company["website"],
+                technology_tag=company.get("industry"), description=company.get("one_liner"),
+                source="yc", needs_review=True,
+            )
+            discovered += 1
+    return discovered
+
+
 def _ingest_linkedin_alerts() -> int:
     """Per profile, not global — each person's LinkedIn job-alert emails
     live in their own mailbox (Profile.imap_*, set on the Profiles page).
@@ -303,6 +329,7 @@ def run(detect_limit: int = 40, careers_discovery_limit: int = 40) -> dict:
     new_from_generic = _scan_generic_careers_pages()
     new_from_discovery = _discover_new_companies()
     new_from_google = _discover_via_google()
+    new_from_yc = _discover_via_yc()
     new_from_linkedin = _ingest_linkedin_alerts()
 
     total_new = new_from_ats + new_from_generic + new_from_discovery + new_from_google + new_from_linkedin
@@ -314,6 +341,7 @@ def run(detect_limit: int = 40, careers_discovery_limit: int = 40) -> dict:
         f"{careers_urls_found} careers pages newly found, "
         f"{total_new} new postings ({new_from_ats} ATS, {new_from_generic} generic, "
         f"{new_from_discovery} discovered, {new_from_google} via Google), "
+        f"{new_from_yc} new YC companies discovered (postings follow next run via ATS detection), "
         f"{len(errors)} source errors"
     )
     return {

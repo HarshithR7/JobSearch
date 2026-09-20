@@ -129,6 +129,20 @@ FREE_SKILL_VOCAB = [
     # General / process
     "Agile", "Scrum", "Kanban", "Waterfall", "Six Sigma", "Lean", "SAFe", "TDD", "Project Management",
     "Leadership", "Mentoring", "Stakeholder Management", "Technical Writing", "PMP",
+    # Healthcare IT / clinical informatics — EHR platforms, interoperability
+    # standards, implementation/testing lifecycle, compliance. Added after a
+    # real gap: this vocabulary was 100% software/hardware-engineering terms,
+    # so a clinical-informatics resume had ~0 keyword overlap with anything,
+    # health-IT postings included — the free scorer couldn't tell it what
+    # skills it even had.
+    "EHR", "EMR", "Epic", "Cerner", "Oracle Health", "eClinicalWorks", "Netsmart",
+    "MEDITECH", "Veradigm", "Allscripts", "NextGen", "Greenway", "athenahealth",
+    "HL7", "FHIR", "Interoperability", "Clinical Informatics", "Health Informatics",
+    "Clinical Workflow", "Workflow Optimization", "Go-Live", "UAT", "Upgrade Testing",
+    "Clinical Documentation", "Population Health", "Care Coordination",
+    "Revenue Cycle", "Claims Processing", "HIPAA", "ICD-10", "CPT", "HITRUST",
+    "Epic Certification", "KPI Reporting", "Data Mapping",
+    "Requirements Gathering", "Process Mapping", "Change Management",
 ]
 
 _TAG_RE = re.compile(r"<[^>]+>")
