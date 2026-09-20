@@ -7,6 +7,8 @@ collides with the main entrypoint being app/app.py — Python ends up with
 the project root (already on sys.path — see any page's `database.*`
 imports) sidesteps the collision entirely."""
 
+import re
+
 import streamlit as st
 
 from database.session import get_session
@@ -121,9 +123,25 @@ def inject_apple_theme() -> None:
     st.markdown(_APPLE_THEME_CSS, unsafe_allow_html=True)
 
 
+def _slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
 def select_profile():
     """Renders a profile picker in the sidebar and returns the selected
-    Profile object (or None if no profiles exist yet)."""
+    Profile object (or None if no profiles exist yet).
+
+    Supports a ?profile=<name> deep link (e.g. .../?profile=srilekha) so
+    each person can bookmark a URL that lands on their own data instead of
+    manually switching the dropdown every fresh browser session — the
+    dropdown otherwise always defaults to whichever profile sorts first
+    alphabetically, which meant one person always saw the other's data
+    first on a new session. Matched loosely (query param is a prefix of
+    the profile name's slug) so "?profile=harshith" or
+    "?profile=srilekha" both work without needing the exact full name.
+    Only applied once per session (guarded by "active_profile" not yet
+    being in session_state) so it never overrides a manual switch made
+    after the page loaded."""
     with get_session() as db:
         profiles = profile_repo.list_all(db)
 
@@ -132,6 +150,14 @@ def select_profile():
         return None
 
     names = [p.name for p in profiles]
+
+    if "active_profile" not in st.session_state:
+        query_slug = _slug(st.query_params.get("profile", ""))
+        if query_slug:
+            match = next((n for n in names if _slug(n).startswith(query_slug)), None)
+            if match:
+                st.session_state["active_profile"] = match
+
     selected_name = st.sidebar.selectbox("Profile", names, key="active_profile")
 
     with get_session() as db:
